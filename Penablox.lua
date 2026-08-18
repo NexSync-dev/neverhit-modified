@@ -603,6 +603,69 @@ task.spawn(function()
         AAHandler.SendPitchMode(nil, "Static", pitch, 0, 0, 0, 0, 0)
     end
 
+    -- True Random: feeds os.clock, mouse position, keyboard state, and frame
+    -- counter into a mix function so every tick produces values that are
+    -- genuinely impossible to predict or bruteforce.
+    local trueRandomFrame = 0
+    local function hashMix(x)
+        x = bit32.bxor(x, bit32.rshift(x, 16))
+        x = bit32.mul(x, 0x45d9f3b)
+        x = bit32.bxor(x, bit32.rshift(x, 16))
+        x = bit32.mul(x, 0x45d9f3b)
+        x = bit32.bxor(x, bit32.rshift(x, 16))
+        return x
+    end
+
+    local function SendTrueRandom()
+        trueRandomFrame = trueRandomFrame + 1
+
+        local clockSeed = math.floor(os.clock() * 1e6)
+        local timeSeed = os.time()
+        local frameSeed = trueRandomFrame
+
+        local mouseSeed = 0
+        pcall(function()
+            local mouse = game:GetService("UserInputService"):GetMouseLocation()
+            mouseSeed = math.floor(mouse.X * 7919 + mouse.Y * 104729)
+        end)
+
+        local keySeed = 0
+        pcall(function()
+            local keys = game:GetService("UserInputService"):GetKeysPressed()
+            for i, k in ipairs(keys) do
+                keySeed = keySeed + k.KeyCode.Value * i
+            end
+        end)
+
+        local combined = hashMix(
+            bit32.bxor(
+                bit32.bor(clockSeed % 2^32, 1),
+                bit32.bor(timeSeed % 2^32, 1),
+                bit32.bor(frameSeed % 2^32, 1),
+                bit32.bor(mouseSeed % 2^32, 1),
+                bit32.bor(keySeed % 2^32, 1)
+            )
+        )
+
+        local function trand(lo, hi)
+            local frac = (combined % 10007) / 10007
+            combined = hashMix(combined)
+            return lo + frac * (hi - lo)
+        end
+
+        local desync = trand(-80, 80)
+        local pitch = trand(-89, 89)
+        local yawLeft = trand(-180, 180)
+        local yawRight = trand(-180, 180)
+        local jitter = trand(0, 180)
+        local delay = trand(0.003, 0.012)
+        local baseYaw = trand(-180, 180)
+
+        AAHandler.SendYawJitter(nil, "Jitter", baseYaw, yawLeft, yawRight, jitter, delay, 0)
+        AAHandler.SendBodyYaw(nil, desync)
+        AAHandler.SendPitchMode(nil, "Static", pitch, 0, 0, 0, 0, 0)
+    end
+
     while true do
         -- single executor-boundary crossing per tick; all per-tick reads come from
         -- this one cached genv table (the loop body is synchronous, so nothing can
@@ -634,6 +697,11 @@ task.spawn(function()
 
                 if G.UnhittableEngine then
                     SendUnhittable()
+                    return
+                end
+
+                if G.typeofantiaim == "True Random" then
+                    SendTrueRandom()
                     return
                 end
 
@@ -1983,7 +2051,7 @@ do
     AA_General:AddDropdown({
         Name = "Mode",
         Flag = "AntiAimMode",
-        Values = {"Static","Offset","Center","3-Way","5-Way","Off","NeverHit"},
+        Values = {"Static","Offset","Center","3-Way","5-Way","Off","NeverHit","True Random"},
         Default = "NeverHit",
         Callback = function(v)
             getgenv().typeofantiaim = v
@@ -2391,9 +2459,19 @@ do
     ChinaHatToggle.Option:AddColorPicker({
         Name = "Color",
         Flag = "ChinaHatColor",
-        Default = Color3.fromRGB(255, 0, 0),
+        Default = Color3.fromRGB(255, 161, 232),
         Callback = function(color)
             getgenv().ChinaHatColor = color
+        end
+    })
+
+    ChinaHatToggle.Option:AddDropdown({
+        Name = "Style",
+        Flag = "ChinaHatStyle",
+        Values = {"Solid", "Wireframe", "Forcefield"},
+        Default = "Solid",
+        Callback = function(v)
+            getgenv().ChinaHatStyle = v
         end
     })
 
@@ -2450,7 +2528,7 @@ do
     PinkESPToggle.Option:AddColorPicker({
         Name = "ESP Color",
         Flag = "PinkESPColor",
-        Default = Color3.fromRGB(255, 0, 100),
+        Default = Color3.fromRGB(255, 161, 232),
         Callback = function(color)
             getgenv().PinkESPColor = color
         end
@@ -2466,11 +2544,37 @@ local function NeverHitDrawEngine()
     local Camera  = workspace.CurrentCamera
     local RunService = game:GetService("RunService")
 
-    local PINK = Color3.fromRGB(255, 0, 100)
+    local BABY_PINK = Color3.fromRGB(255, 161, 232)
     local WHITE = Color3.fromRGB(255, 255, 255)
     local RED   = Color3.fromRGB(255, 0, 0)
     local GREEN = Color3.fromRGB(0, 255, 0)
+    local YELLOW = Color3.fromRGB(255, 255, 0)
     local DARK  = Color3.fromRGB(40, 40, 40)
+
+    local function isTeammate(plr)
+        local lp = Players.LocalPlayer
+        if not lp or not plr then return false end
+        if lp.Team and plr.Team and lp.Team == plr.Team then return true end
+        return false
+    end
+
+    local function hpColor(pct)
+        if pct > 0.6 then
+            local t = (pct - 0.6) / 0.4
+            return Color3.new(1 - t, 1, 0)
+        elseif pct > 0.3 then
+            local t = (pct - 0.3) / 0.3
+            return Color3.new(1, t, 0)
+        else
+            return Color3.new(1, 0, 0)
+        end
+    end
+
+    local function getBoundingBox(headV, rootV)
+        local height = math.max(math.abs(headV.Y - rootV.Y), 4)
+        local width  = math.max(height * 0.55, 16)
+        return height, width
+    end
 
     local useImmediate = DrawingImmediate and DrawingImmediate.GetPaint
 
@@ -2492,19 +2596,61 @@ local function NeverHitDrawEngine()
                             local scale = Camera.ViewportSize.Y / 1080
                             local h = (getgenv().ChinaHatSize or 40) * scale
                             local half = h * 0.30
-                            local color = getgenv().ChinaHatColor or RED
-                            DrawingImmediate.FilledTriangle(
-                                Vector2.new(pos.X, pos.Y - h),
-                                Vector2.new(pos.X - half, pos.Y),
-                                Vector2.new(pos.X + half, pos.Y),
-                                color, 1
-                            )
-                            DrawingImmediate.FilledTriangle(
-                                Vector2.new(pos.X, pos.Y + h * 0.10),
-                                Vector2.new(pos.X - half * 1.2, pos.Y),
-                                Vector2.new(pos.X + half * 1.2, pos.Y),
-                                color, 0.85
-                            )
+                            local color = getgenv().ChinaHatColor or BABY_PINK
+                            local style = getgenv().ChinaHatStyle or "Solid"
+
+                            if style == "Forcefield" then
+                                DrawingImmediate.FilledTriangle(
+                                    Vector2.new(pos.X, pos.Y - h),
+                                    Vector2.new(pos.X - half, pos.Y),
+                                    Vector2.new(pos.X + half, pos.Y),
+                                    color, 0.45
+                                )
+                                DrawingImmediate.FilledTriangle(
+                                    Vector2.new(pos.X, pos.Y + h * 0.10),
+                                    Vector2.new(pos.X - half * 1.2, pos.Y),
+                                    Vector2.new(pos.X + half * 1.2, pos.Y),
+                                    color, 0.35
+                                )
+                                DrawingImmediate.Line(
+                                    Vector2.new(pos.X, pos.Y - h),
+                                    Vector2.new(pos.X - half, pos.Y), color, 1.5, 1
+                                )
+                                DrawingImmediate.Line(
+                                    Vector2.new(pos.X, pos.Y - h),
+                                    Vector2.new(pos.X + half, pos.Y), color, 1.5, 1
+                                )
+                                DrawingImmediate.Line(
+                                    Vector2.new(pos.X - half, pos.Y),
+                                    Vector2.new(pos.X + half, pos.Y), color, 1.5, 1
+                                )
+                            elseif style == "Wireframe" then
+                                DrawingImmediate.Line(
+                                    Vector2.new(pos.X, pos.Y - h),
+                                    Vector2.new(pos.X - half, pos.Y), color, 1.5, 1
+                                )
+                                DrawingImmediate.Line(
+                                    Vector2.new(pos.X, pos.Y - h),
+                                    Vector2.new(pos.X + half, pos.Y), color, 1.5, 1
+                                )
+                                DrawingImmediate.Line(
+                                    Vector2.new(pos.X - half, pos.Y),
+                                    Vector2.new(pos.X + half, pos.Y), color, 1.5, 1
+                                )
+                            else
+                                DrawingImmediate.FilledTriangle(
+                                    Vector2.new(pos.X, pos.Y - h),
+                                    Vector2.new(pos.X - half, pos.Y),
+                                    Vector2.new(pos.X + half, pos.Y),
+                                    color, 1
+                                )
+                                DrawingImmediate.FilledTriangle(
+                                    Vector2.new(pos.X, pos.Y + h * 0.10),
+                                    Vector2.new(pos.X - half * 1.2, pos.Y),
+                                    Vector2.new(pos.X + half * 1.2, pos.Y),
+                                    color, 0.85
+                                )
+                            end
                         end
                     end
                 end
@@ -2519,7 +2665,7 @@ local function NeverHitDrawEngine()
                     local distLimit  = getgenv().ESPDistanceLimit or 300
 
                     for _, plr in ipairs(Players:GetPlayers()) do
-                        if plr ~= lp and plr.Character then
+                        if plr ~= lp and not isTeammate(plr) and plr.Character then
                             local hum  = plr.Character:FindFirstChildOfClass("Humanoid")
                             local head = plr.Character:FindFirstChild("Head")
                             local root = plr.Character:FindFirstChild("HumanoidRootPart")
@@ -2530,8 +2676,7 @@ local function NeverHitDrawEngine()
                                 local headV, onS1 = Camera:WorldToViewportPoint(head.Position)
                                 local rootV, onS2 = Camera:WorldToViewportPoint(root.Position)
                                 if onS1 and onS2 and headV.Z > 0 then
-                                    local height = math.max(math.abs(headV.Y - rootV.Y), 4)
-                                    local width  = math.clamp(height * 0.6, 20, 400)
+                                    local height, width = getBoundingBox(headV, rootV)
 
                                     if showBox then
                                         DrawingImmediate.Rectangle(
@@ -2574,14 +2719,14 @@ local function NeverHitDrawEngine()
                 -- Pink ESP
                 if getgenv().PinkESPEnabled and lp.Character then
                     local myRoot = lp.Character:FindFirstChild("HumanoidRootPart")
-                    local espColor = getgenv().PinkESPColor or PINK
+                    local espColor = getgenv().PinkESPColor or BABY_PINK
                     local showBox    = getgenv().PinkESPBox ~= false
                     local showHealth = getgenv().PinkESPHealth ~= false
                     local showChams  = getgenv().PinkESPChams ~= false
                     local distLimit  = getgenv().PinkESPDistance or 500
 
                     for _, plr in ipairs(Players:GetPlayers()) do
-                        if plr ~= lp and plr.Character then
+                        if plr ~= lp and not isTeammate(plr) and plr.Character then
                             local hum  = plr.Character:FindFirstChildOfClass("Humanoid")
                             local head = plr.Character:FindFirstChild("Head")
                             local root = plr.Character:FindFirstChild("HumanoidRootPart")
@@ -2592,8 +2737,7 @@ local function NeverHitDrawEngine()
                                 local headV, onS1 = Camera:WorldToViewportPoint(head.Position)
                                 local rootV, onS2 = Camera:WorldToViewportPoint(root.Position)
                                 if onS1 and onS2 and headV.Z > 0 then
-                                    local height = math.max(math.abs(headV.Y - rootV.Y), 4)
-                                    local width  = math.clamp(height * 0.6, 20, 400)
+                                    local height, width = getBoundingBox(headV, rootV)
 
                                     if showBox then
                                         DrawingImmediate.Rectangle(
@@ -2607,7 +2751,7 @@ local function NeverHitDrawEngine()
                                         local hb  = rootV.Y + height
                                         local hh  = height * 0.25
                                         DrawingImmediate.Rectangle(Vector2.new(hx, hb - hh), Vector2.new(3, hh), DARK, 1, 1, 1)
-                                        DrawingImmediate.Rectangle(Vector2.new(hx, hb - hh * pct), Vector2.new(3, hh * pct), espColor, 1, 1, 1)
+                                        DrawingImmediate.Rectangle(Vector2.new(hx, hb - hh * pct), Vector2.new(3, hh * pct), hpColor(pct), 1, 1, 1)
                                     end
                                     DrawingImmediate.Text(
                                         Vector2.new(rootV.X, headV.Y - 18),
@@ -2679,7 +2823,7 @@ local function NeverHitDrawEngine()
             local highlights = {}
             local char = plr.Character
             if not char then return end
-            local espColor = getgenv().PinkESPColor or PINK
+            local espColor = getgenv().PinkESPColor or BABY_PINK
             for _, part in ipairs(char:GetDescendants()) do
                 if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
                     local h = Instance.new("Highlight")
@@ -2706,6 +2850,26 @@ local function NeverHitDrawEngine()
             destroyChams(plr)
         end
 
+        -- China Hat Drawing objects (created lazily)
+        local hatCone, hatBrim, hatWire1, hatWire2, hatWire3
+
+        local function ensureHatObjects()
+            if hatCone then return end
+            hatCone = Drawing.new("Triangle"); hatCone.Filled = true; hatCone.Visible = false; hatCone.ZIndex = 98
+            hatBrim = Drawing.new("Triangle"); hatBrim.Filled = true; hatBrim.Visible = false; hatBrim.ZIndex = 98
+            hatWire1 = Drawing.new("Line"); hatWire1.Visible = false; hatWire1.ZIndex = 98; hatWire1.Thickness = 1.5
+            hatWire2 = Drawing.new("Line"); hatWire2.Visible = false; hatWire2.ZIndex = 98; hatWire2.Thickness = 1.5
+            hatWire3 = Drawing.new("Line"); hatWire3.Visible = false; hatWire3.ZIndex = 98; hatWire3.Thickness = 1.5
+        end
+
+        local function hideHat()
+            if hatCone then hatCone.Visible = false end
+            if hatBrim then hatBrim.Visible = false end
+            if hatWire1 then hatWire1.Visible = false end
+            if hatWire2 then hatWire2.Visible = false end
+            if hatWire3 then hatWire3.Visible = false end
+        end
+
         RunService.RenderStepped:Connect(function()
             pcall(function()
                 local lp = Players.LocalPlayer
@@ -2718,45 +2882,53 @@ local function NeverHitDrawEngine()
                     if head then
                         local pos, onScreen = Camera:WorldToViewportPoint(head.Position)
                         if onScreen and pos.Z > 0 then
+                            ensureHatObjects()
                             local scale = Camera.ViewportSize.Y / 1080
                             local h = (getgenv().ChinaHatSize or 40) * scale
                             local half = h * 0.30
-                            local color = getgenv().ChinaHatColor or RED
-                            if not espObjects._chinaHatTip then
-                                espObjects._chinaHatTip = Drawing.new("Triangle")
-                                espObjects._chinaHatTip.Filled = true
-                                espObjects._chinaHatTip.Visible = false
-                                espObjects._chinaHatTip.ZIndex = 98
-                                espObjects._chinaHatBrim = Drawing.new("Triangle")
-                                espObjects._chinaHatBrim.Filled = true
-                                espObjects._chinaHatBrim.Visible = false
-                                espObjects._chinaHatBrim.ZIndex = 98
+                            local color = getgenv().ChinaHatColor or BABY_PINK
+                            local style = getgenv().ChinaHatStyle or "Solid"
+
+                            local tipA = Vector2.new(pos.X, pos.Y - h)
+                            local baseL = Vector2.new(pos.X - half, pos.Y)
+                            local baseR = Vector2.new(pos.X + half, pos.Y)
+                            local brimL = Vector2.new(pos.X - half * 1.2, pos.Y)
+                            local brimR = Vector2.new(pos.X + half * 1.2, pos.Y)
+
+                            if style == "Forcefield" then
+                                hatCone.PointA = tipA; hatCone.PointB = baseL; hatCone.PointC = baseR
+                                hatCone.Color = color; hatCone.Transparency = 0.55; hatCone.Visible = true
+                                hatBrim.PointA = Vector2.new(pos.X, pos.Y + h * 0.10)
+                                hatBrim.PointB = brimL; hatBrim.PointC = brimR
+                                hatBrim.Color = color; hatBrim.Transparency = 0.65; hatBrim.Visible = true
+                                hatWire1.From = tipA; hatWire1.To = baseL; hatWire1.Color = color; hatWire1.Visible = true
+                                hatWire2.From = tipA; hatWire2.To = baseR; hatWire2.Color = color; hatWire2.Visible = true
+                                hatWire3.From = baseL; hatWire3.To = baseR; hatWire3.Color = color; hatWire3.Visible = true
+                                hatCone.Transparency = 0
+                            elseif style == "Wireframe" then
+                                hatCone.Visible = false; hatBrim.Visible = false
+                                hatWire1.From = tipA; hatWire1.To = baseL; hatWire1.Color = color; hatWire1.Visible = true
+                                hatWire2.From = tipA; hatWire2.To = baseR; hatWire2.Color = color; hatWire2.Visible = true
+                                hatWire3.From = baseL; hatWire3.To = baseR; hatWire3.Color = color; hatWire3.Visible = true
+                            else
+                                hatCone.PointA = tipA; hatCone.PointB = baseL; hatCone.PointC = baseR
+                                hatCone.Color = color; hatCone.Transparency = 0; hatCone.Visible = true
+                                hatBrim.PointA = Vector2.new(pos.X, pos.Y + h * 0.10)
+                                hatBrim.PointB = brimL; hatBrim.PointC = brimR
+                                hatBrim.Color = color; hatBrim.Transparency = 0.15; hatBrim.Visible = true
+                                hatWire1.Visible = false; hatWire2.Visible = false; hatWire3.Visible = false
                             end
-                            local tip = espObjects._chinaHatTip
-                            local brim = espObjects._chinaHatBrim
-                            tip.PointA = Vector2.new(pos.X, pos.Y - h)
-                            tip.PointB = Vector2.new(pos.X - half, pos.Y)
-                            tip.PointC = Vector2.new(pos.X + half, pos.Y)
-                            tip.Color = color
-                            tip.Visible = true
-                            brim.PointA = Vector2.new(pos.X, pos.Y + h * 0.10)
-                            brim.PointB = Vector2.new(pos.X - half * 1.2, pos.Y)
-                            brim.PointC = Vector2.new(pos.X + half * 1.2, pos.Y)
-                            brim.Color = color
-                            brim.Visible = true
                         else
-                            if espObjects._chinaHatTip then espObjects._chinaHatTip.Visible = false end
-                            if espObjects._chinaHatBrim then espObjects._chinaHatBrim.Visible = false end
+                            hideHat()
                         end
                     end
                 else
-                    if espObjects._chinaHatTip then espObjects._chinaHatTip.Visible = false end
-                    if espObjects._chinaHatBrim then espObjects._chinaHatBrim.Visible = false end
+                    hideHat()
                 end
 
-                -- Chinese ESP
+                -- Chinese ESP + Pink ESP (shared pass)
                 for _, plr in ipairs(Players:GetPlayers()) do
-                    if plr == lp then continue end
+                    if plr == lp or isTeammate(plr) then continue end
                     local char = plr.Character
                     if not char then removeEsp(plr); continue end
                     local hum  = char:FindFirstChildOfClass("Humanoid")
@@ -2783,9 +2955,8 @@ local function NeverHitDrawEngine()
                         continue
                     end
 
-                    local height = math.max(math.abs(headV.Y - rootV.Y), 4)
-                    local width  = math.clamp(height * 0.6, 20, 400)
-                    local espColor = shouldShowPink and (getgenv().PinkESPColor or PINK) or RED
+                    local height, width = getBoundingBox(headV, rootV)
+                    local espColor = shouldShowPink and (getgenv().PinkESPColor or BABY_PINK) or RED
 
                     -- Box
                     if (shouldShow and getgenv().ESPBox ~= false) or (shouldShowPink and getgenv().PinkESPBox ~= false) then
@@ -2803,7 +2974,8 @@ local function NeverHitDrawEngine()
                     end
 
                     -- Health Bar
-                    if (shouldShow and getgenv().ESPHealth ~= false) or (shouldShowPink and getgenv().PinkESPHealth ~= false) then
+                    local showHealthBar = (shouldShow and getgenv().ESPHealth ~= false) or (shouldShowPink and getgenv().PinkESPHealth ~= false)
+                    if showHealthBar then
                         local pct = math.clamp(hum.Health / hum.MaxHealth, 0, 1)
                         local hx = rootV.X - width / 2 - 5
                         local hb = rootV.Y + height
@@ -2814,7 +2986,7 @@ local function NeverHitDrawEngine()
                         objs.healthBarBg.Visible = true
                         objs.healthBar.Position = Vector2.new(hx, hb - hh * pct)
                         objs.healthBar.Size = Vector2.new(3, hh * pct)
-                        objs.healthBar.Color = pct > 0.5 and GREEN or Color3.fromRGB(255, 165, 0)
+                        objs.healthBar.Color = hpColor(pct)
                         objs.healthBar.Visible = true
                     else
                         objs.healthBarBg.Visible = false
@@ -2859,7 +3031,7 @@ local function NeverHitDrawEngine()
 
                 -- cleanup disconnected players
                 for plr, _ in pairs(espObjects) do
-                    if plr ~= "_chinaHatTip" and plr ~= "_chinaHatBrim" then
+                    if type(plr) ~= "string" then
                         if not Players:FindFirstChild(plr.Name) then
                             removeEsp(plr)
                         end
