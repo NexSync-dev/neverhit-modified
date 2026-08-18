@@ -653,17 +653,107 @@ task.spawn(function()
             return lo + frac * (hi - lo)
         end
 
-        local desync = trand(-80, 80)
-        local pitch = trand(-89, 89)
-        local yawLeft = trand(-180, 180)
-        local yawRight = trand(-180, 180)
-        local jitter = trand(0, 180)
-        local delay = trand(0.003, 0.012)
-        local baseYaw = trand(-180, 180)
+        local function tchoice(t)
+            local idx = math.floor(trand(0, #t - 0.001)) + 1
+            return t[idx]
+        end
 
-        AAHandler.SendYawJitter(nil, "Jitter", baseYaw, yawLeft, yawRight, jitter, delay, 0)
+        -- Pattern roll: sometimes do something totally different each tick,
+        -- sometimes run 3-8 ticks of a "fake pattern" that resolver candidates
+        -- would latch onto, then break it.
+        local tickInPattern = trueRandomFrame % 8
+        local patternRoll = trand(0, 1)
+
+        local yawModes = {"Jitter", "Jitter", "Jitter", "Offset", "Center", "3-Way", "5-Way"}
+        local pitchModes = {"Static", "Static", "Up", "Down", "Zero", "Static", "Static", "Static"}
+
+        local mode = tchoice(yawModes)
+        local pitchMode = tchoice(pitchModes)
+        local baseYaw, yawLeft, yawRight, jitter, delay, randomness, desync, pitch
+
+        if patternRoll < 0.25 then
+            -- PHASE 1: "Chaotic snap" — hard values every tick, no consistency
+            baseYaw = trand(-180, 180)
+            local mag = trand(30, 180)
+            yawLeft = -mag
+            yawRight = mag
+            jitter = trand(60, 180)
+            delay = trand(0.002, 0.006)
+            randomness = trand(0, 40)
+            local depth = trand(40, 80)
+            desync = trand(0, 1) > 0.5 and depth or -depth
+            pitch = pitchMode == "Static" and trand(-89, 89) or 0
+
+        elseif patternRoll < 0.50 then
+            -- PHASE 2: "Deep desync + slow sweep" — body yaw pinned hard, base yaw
+            -- sweeps slowly while jitter is high so the server sees a constantly
+            -- shifting origin.
+            baseYaw = trand(-180, 180)
+            local sweep = math.sin(trueRandomFrame * trand(0.3, 1.2)) * 180
+            yawLeft = sweep - trand(20, 90)
+            yawRight = sweep + trand(20, 90)
+            jitter = trand(90, 180)
+            delay = trand(0.003, 0.010)
+            randomness = trand(0, 20)
+            local sign = trand(0, 1) > 0.5 and 1 or -1
+            desync = sign * trand(60, 80)
+            pitch = trand(-89, 89)
+
+        elseif patternRoll < 0.70 then
+            -- PHASE 3: "Anti-pattern" — deliberately uses the EXACT angles that
+            -- bruteforce resolvers try first, then offsets them just enough to
+            -- miss. A resolver using -135/135 or -90/90 as candidates will whiff.
+            local fake1 = tchoice({-135, 135, -90, 90, -180, 180, -45, 45})
+            local offset = trand(-15, 15)
+            baseYaw = trand(-180, 180)
+            yawLeft = fake1 + offset
+            yawRight = -(fake1 + offset)
+            jitter = trand(120, 180)
+            delay = trand(0.005, 0.012)
+            randomness = trand(10, 30)
+            desync = trand(0, 1) > 0.5 and trand(50, 80) or trand(-80, -50)
+            pitch = trand(-89, 89)
+
+        elseif patternRoll < 0.85 then
+            -- PHASE 4: "Tick-skip ghost" — set jitter delay so high that the
+            -- server misses some flips, making body yaw appear to be the real
+            -- yaw on skipped ticks.
+            baseYaw = trand(-180, 180)
+            yawLeft = trand(-180, 0)
+            yawRight = trand(0, 180)
+            jitter = trand(0, 180)
+            delay = trand(0.015, 0.040)
+            randomness = trand(0, 50)
+            desync = trand(0, 1) > 0.6 and trand(60, 80) or trand(-80, -60)
+            pitch = pitchMode == "Static" and trand(-89, 89) or 0
+
+        else
+            -- PHASE 5: "Mimic legit" — tight, narrow jitter that looks like a
+            -- normal player, then every 3rd tick snaps hard so the resolver
+            -- that assumed legit gets surprised.
+            if tickInPattern % 3 == 0 then
+                baseYaw = trand(-180, 180)
+                yawLeft = trand(-120, 120)
+                yawRight = -yawLeft + trand(-10, 10)
+                jitter = trand(0, 30)
+                delay = trand(0.002, 0.005)
+                desync = trand(0, 1) > 0.5 and trand(5, 20) or trand(-20, -5)
+                pitch = trand(-20, 20)
+            else
+                baseYaw = trand(-180, 180)
+                yawLeft = -trand(140, 180)
+                yawRight = trand(140, 180)
+                jitter = trand(150, 180)
+                delay = trand(0.002, 0.004)
+                desync = trand(0, 1) > 0.5 and trand(70, 80) or trand(-80, -70)
+                pitch = trand(-89, 89)
+            end
+            randomness = trand(0, 15)
+        end
+
+        AAHandler.SendYawJitter(nil, mode, baseYaw, yawLeft, yawRight, jitter, delay, randomness)
         AAHandler.SendBodyYaw(nil, desync)
-        AAHandler.SendPitchMode(nil, "Static", pitch, 0, 0, 0, 0, 0)
+        AAHandler.SendPitchMode(nil, pitchMode, pitch, 0, 0, 0, 0, 0)
     end
 
     while true do
