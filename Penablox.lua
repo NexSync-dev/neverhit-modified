@@ -659,44 +659,45 @@ task.spawn(function()
             return lo + frac * (hi - lo)
         end
 
-        -- Everything is randomized every tick: base yaw, body yaw, pitch,
-        -- jitter, delay. Desync is always deep and biased (mean != 0).
+        -- Same fundamentals as Unhittable (which works), but harder:
+        -- 1. Desync is DEEPER and MORE BIASED (80% one side, min 70)
+        -- 2. Flip angles are WIDER (always 160-180, not 90-180)
+        -- 3. Pitch is MORE EXTREME (always 70-89, not 20-55)
+        -- 4. Timing is FASTER (2-6ms, not 4-16ms)
+        -- 5. Desync direction switches LESS often (harder to track)
 
-        local depth = 60 + trand(0, 20)
-        local desyncSide = trand(0, 1)
+        local depth = 70 + trand(0, 10)
+
+        -- 80% deep-positive, 15% deep-negative, 5% switch.
+        -- Mean is always heavily biased — resolver can't average to 0.
+        local desyncRoll = trand(0, 1)
         local desync
-
-        if desyncSide < 0.70 then
+        if desyncRoll < 0.80 then
             desync = depth
-        elseif desyncSide < 0.85 then
+        elseif desyncRoll < 0.95 then
             desync = -depth
         else
             desync = trand(0, 1) > 0.5 and -depth or depth
         end
 
-        local baseYaw = trand(-180, 180)
-        local mag = 140 + trand(0, 40)
-        local yawLeft = -mag
-        local yawRight = mag
+        -- Base yaw stays at 0 — randomizing it adds noise that averages out.
+        -- The jitter itself (±160-180) is what hides the real yaw.
+        local flipMag = 160 + trand(0, 20)
+        local left = -flipMag
+        local right = flipMag
 
-        local jitter = 150 + trand(0, 30)
-        local delay = 0.003 + trand(0, 0.005)
-        local randomness = trand(0, 10)
+        -- Jitter always max — no reason to go lower.
+        local jitter = 180
 
-        local pitch
-        local pitchRoll = trand(0, 1)
-        if pitchRoll < 0.60 then
-            pitch = -(70 + trand(0, 19))
-        elseif pitchRoll < 0.90 then
-            pitch = 70 + trand(0, 19)
-        else
-            pitch = trand(0, 1) > 0.5 and -89 or 89
-        end
+        -- Fast irregular timing — server always gets it, resolver can't sync.
+        local delay = 0.002 + trand(0, 0.004)
 
-        -- Set base yaw so the visual yaw hook rotates the character
-        getgenv().BaseYawantiaim = baseYaw
+        -- Pitch: always extreme. Looking up hides head from most angles.
+        local pitch = -(70 + trand(0, 19))
 
-        AAHandler.SendYawJitter(nil, "Jitter", baseYaw, yawLeft, yawRight, jitter, delay, randomness)
+        getgenv().BaseYawantiaim = 0
+
+        AAHandler.SendYawJitter(nil, "Jitter", 0, left, right, jitter, delay, 0)
         AAHandler.SendBodyYaw(nil, desync)
         AAHandler.SendPitchMode(nil, "Static", pitch, 0, 0, 0, 0, 0)
     end
@@ -721,10 +722,7 @@ task.spawn(function()
         end
 
         if G.AntiAimEnabled then
-            -- True Random auto-manages the yaw hook (needs it for base yaw rotation)
-            if G.TrueRandomAA then
-                ensureYawHook()
-            elseif G.BaseYawHookEnabled then
+            if G.BaseYawHookEnabled then
                 ensureYawHook()
             else
                 removeYawHook()
@@ -2218,10 +2216,6 @@ do
         Default = false,
         Callback = function(v)
             getgenv().TrueRandomAA = v
-            if not v then
-                getgenv().BaseYawantiaim = 0
-                removeYawHook()
-            end
         end
     })
 
