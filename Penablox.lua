@@ -211,6 +211,12 @@ if getgenv().UnhittableEngine == nil then
     getgenv().UnhittableFlipDelay = 0.008  -- base flip interval (randomized per tick)
 end
 
+-- True Random AA defaults: deep biased desync, extreme pitch, random base yaw.
+-- Own toggle — independent of dropdown mode and Unhittable engine.
+if getgenv().TrueRandomAA == nil then
+    getgenv().TrueRandomAA = false
+end
+
 -- China Hat visual defaults (rendered on the LocalPlayer's head).
 if getgenv().ChinaHat == nil then
     getgenv().ChinaHat = false
@@ -653,18 +659,13 @@ task.spawn(function()
             return lo + frac * (hi - lo)
         end
 
-        -- Always Jitter mode — it's the only mode that hides the real yaw.
-        -- Always wide jitter (150-180) so the resolver can't narrow the range.
-        -- Desync is ALWAYS deep and biased — mean is never 0.
-        -- Pitch is always extreme — looking up or down, never neutral.
+        -- Everything is randomized every tick: base yaw, body yaw, pitch,
+        -- jitter, delay. Desync is always deep and biased (mean != 0).
 
         local depth = 60 + trand(0, 20)
         local desyncSide = trand(0, 1)
         local desync
 
-        -- 70% of ticks: hard one-sided desync (mean ≈ +depth or -depth, never 0).
-        -- 30%: switch side but still deep — breaks a resolver that locked onto
-        -- one direction.
         if desyncSide < 0.70 then
             desync = depth
         elseif desyncSide < 0.85 then
@@ -679,16 +680,9 @@ task.spawn(function()
         local yawRight = mag
 
         local jitter = 150 + trand(0, 30)
-
-        -- Timing: fast enough the server always gets it, but irregular so the
-        -- resolver can't sync. 3-8ms range, never above 10.
         local delay = 0.003 + trand(0, 0.005)
-
         local randomness = trand(0, 10)
 
-        -- Pitch: always extreme. Looking up (-89) hides the head hitbox from
-        -- most angles. Occasionally look down (89) so the resolver can't assume
-        -- a fixed pitch. Never neutral (0).
         local pitch
         local pitchRoll = trand(0, 1)
         if pitchRoll < 0.60 then
@@ -698,6 +692,9 @@ task.spawn(function()
         else
             pitch = trand(0, 1) > 0.5 and -89 or 89
         end
+
+        -- Set base yaw so the visual yaw hook rotates the character
+        getgenv().BaseYawantiaim = baseYaw
 
         AAHandler.SendYawJitter(nil, "Jitter", baseYaw, yawLeft, yawRight, jitter, delay, randomness)
         AAHandler.SendBodyYaw(nil, desync)
@@ -724,14 +721,21 @@ task.spawn(function()
         end
 
         if G.AntiAimEnabled then
-            -- keep the FPS-killing yaw hook in sync with its opt-in toggle
-            if G.BaseYawHookEnabled then
+            -- True Random auto-manages the yaw hook (needs it for base yaw rotation)
+            if G.TrueRandomAA then
+                ensureYawHook()
+            elseif G.BaseYawHookEnabled then
                 ensureYawHook()
             else
                 removeYawHook()
             end
 
             local smainses, fmainses = pcall(function()
+
+                if G.TrueRandomAA then
+                    SendTrueRandom()
+                    return
+                end
 
                 if G.UnhittableEngine then
                     SendUnhittable()
@@ -2127,10 +2131,10 @@ do
         Callback = function()
             getgenv().AntiAimEnabled = true
             getgenv().UnhittableEngine = false
-            getgenv().typeofantiaim = "True Random"
+            getgenv().TrueRandomAA = true
             Notification:Notify({
                 Title = "NeverHit",
-                Content = "True Random enabled — deep biased desync, extreme pitch, wide jitter.",
+                Content = "True Random enabled — deep biased desync, extreme pitch, wide jitter, random base yaw.",
                 Icon = "shield"
             })
         end
@@ -2205,6 +2209,19 @@ do
         Default = false,
         Callback = function(v)
             getgenv().UnhittableEngine = v
+        end
+    })
+
+    AA_General:AddToggle({
+        Name = "True Random",
+        Flag = "TrueRandomAA",
+        Default = false,
+        Callback = function(v)
+            getgenv().TrueRandomAA = v
+            if not v then
+                getgenv().BaseYawantiaim = 0
+                removeYawHook()
+            end
         end
     })
 
