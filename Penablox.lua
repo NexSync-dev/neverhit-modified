@@ -482,20 +482,23 @@ task.spawn(function()
     local function hookyaw()
         if yawHooked then return end
         local plr = game:GetService("Players").LocalPlayer
-        local chr = plr.Character or plr.CharacterAdded:Wait()
-        local Root = chr:WaitForChild("HumanoidRootPart")
 
         local oldNewIndex
         local yawHook = newcclosure(function(self, key, value)
-            if self == Root and key == "CFrame" and not checkcaller() and getgenv().AntiAimEnabled then
-                local rot = getgenv().BaseYawantiaim or 0
-                value = value * CFrame.Angles(0, math.rad(rot), 0)
+            if key == "CFrame" and not checkcaller() and getgenv().AntiAimEnabled then
+                local chr = plr.Character
+                local root = chr and chr:FindFirstChild("HumanoidRootPart")
+                if root and self == root then
+                    local rot = getgenv().BaseYawantiaim or 0
+                    value = value * CFrame.Angles(0, math.rad(rot), 0)
+                end
             end
             return oldNewIndex(self, key, value)
         end, "HookYaw")
         setstackhidden(yawHook, true)
         oldNewIndex = hookmetamethod(game, "__newindex", yawHook)
         yawHookOld = oldNewIndex
+        yawHooked = true
     end
 
     local function removeYawHook()
@@ -514,16 +517,12 @@ task.spawn(function()
         if not getgenv().BaseYawHookEnabled then return end
         local baseYaw = getgenv().BaseYawantiaim or 0
         if math.abs(baseYaw) <= 0.001 then return end
-        -- mark as in-flight *synchronously* so a re-entrant call during the async
-        -- character/root wait can't spawn a second hook. yawHooked is only set
-        -- after the pcall actually succeeds.
         yawHooking = true
         task.spawn(function()
             local s_hook, e_hook = pcall(hookyaw)
             yawHooking = false
-            if s_hook and getgenv().BaseYawHookEnabled then
-                yawHooked = true
-            elseif not s_hook then
+            if not s_hook then
+                yawHooked = false
                 warn("Failed to hook yaw: " .. tostring(e_hook))
             end
         end)
@@ -1255,21 +1254,26 @@ task.spawn(function()
 
 
         RunService.Heartbeat:Connect(function()
-            if not getgenv().CustomResolverEnabled or getgenv().CustomResolverMode ~= "Divine.lua OLD" then return end
+            local ok, err = pcall(function()
+                if not getgenv().CustomResolverEnabled or getgenv().CustomResolverMode ~= "Divine.lua OLD" then return end
 
-            if not getgenv().DivineLuaCorrection then
-                return
-            end
+                if not getgenv().DivineLuaCorrection then
+                    return
+                end
 
-            if os.clock() - lastFlush > FLUSH_TIME then
-                flushthis()
-            end
+                if os.clock() - lastFlush > FLUSH_TIME then
+                    flushthis()
+                end
 
-            local tgt = getClosest()
-            if tgt then
-                pushYaw(tgt)
-                local yaw = resolveYaw(tgt)
-                applyYaw(tgt, yaw)
+                local tgt = getClosest()
+                if tgt then
+                    pushYaw(tgt)
+                    local yaw = resolveYaw(tgt)
+                    applyYaw(tgt, yaw)
+                end
+            end)
+            if not ok then
+                warn("Resolver error: " .. tostring(err))
             end
         end)
     end
@@ -1372,63 +1376,59 @@ task.spawn(function()
         end
         if not mainEvent then return end
 
-        local old = mainEvent.FireServer
+        local ok_old, old = pcall(function() return mainEvent.FireServer end)
+        if not ok_old or not old then return end
 
         fireHook = newcclosure(function(self, ...)
-            if not getgenv().RageBotEnabled then
-                return old(self, ...)
-            end
+            local ok, result = pcall(function(...)
+                if not getgenv().RageBotEnabled then
+                    return old(self, ...)
+                end
 
-            -- Keep the original arity. `unpack(args)` (implicit #) misbehaves on
-            -- tables with any nil in the middle (Roblox remotes frequently send
-            -- ragged arg sets), silently truncating the fire or rebuilding the
-            -- packet wrong -> server rejects it harder the more it succeeds, and it
-            -- contributes to the "hitting someone after crashes" symptom.
-            local argCount = select("#", ...)
-            local args = {...}
-            if tostring(self) == "MainEvent" and getgenv().RageBotMethod == "Event Hook" then
-                local ok_action, action = pcall(decryptstring, args[1])
-                if ok_action and (action == "Shoot" or action == "MeleeHit") then
+                local argCount = select("#", ...)
+                local args = {...}
+                if tostring(self) == "MainEvent" and getgenv().RageBotMethod == "Event Hook" then
+                    local ok_action, action = pcall(decryptstring, args[1])
+                    if ok_action and (action == "Shoot" or action == "MeleeHit") then
 
-                    local HitPos = getgenv().RageBotHitPos or "Auto"
-                    local dmgpart = getgenv().RageBotHitPart or "Head"
-                    local origin = typeof(args[6]) == "Vector3" and args[6]
+                        local HitPos = getgenv().RageBotHitPos or "Auto"
+                        local dmgpart = getgenv().RageBotHitPart or "Head"
+                        local origin = typeof(args[6]) == "Vector3" and args[6]
 
-                    local aimPos = nil
-                    local partName = nil
-                    local target
+                        local aimPos = nil
+                        local partName = nil
+                        local target
 
-                    local lp = game:GetService("Players").LocalPlayer
-                    local tp = lp:FindFirstChild("TargetPos")
-                    local targetPos = tp and tp.Value
+                        local lp = game:GetService("Players").LocalPlayer
+                        local tp = lp and lp:FindFirstChild("TargetPos")
+                        local targetPos = tp and tp.Value
 
-                    local preferAuto = typeof(targetPos) == "Vector3" and targetPos.Magnitude > 0.5
+                        local preferAuto = typeof(targetPos) == "Vector3" and targetPos.Magnitude > 0.5
 
-                    if HitPos == "Auto" and preferAuto then
-                        -- the game's own aim point is already resolver/desync-aware.
-                        aimPos = targetPos
-                        local atPos = findTargetAtPos(aimPos)
-                        target = atPos or GetClosestPlayer()
-                        partName = GetPartNameAtPos(aimPos, origin)
-                    else
-                        target = GetClosestPlayer()
-                        local char = target and target.Character
-                        if char then
-                            local part = getTargetPart(char, HitPos == "Auto" and "Head" or HitPos)
-                            if not part then
-                                part = char:FindFirstChild("HumanoidRootPart")
-                            end
-                            if part then
-                                aimPos = PredictPosition(part)
-                                -- aim at the real (desynced) hitbox, not the visible body
-                                aimPos = resolveDesyncPart(target, aimPos)
-                                partName = part.Name
+                        if HitPos == "Auto" and preferAuto then
+                            aimPos = targetPos
+                            local atPos = findTargetAtPos(aimPos)
+                            target = atPos or GetClosestPlayer()
+                            partName = GetPartNameAtPos(aimPos, origin)
+                        else
+                            target = GetClosestPlayer()
+                            if target then
+                                local char = target.Character
+                                if char then
+                                    local part = getTargetPart(char, HitPos == "Auto" and "Head" or HitPos)
+                                    if not part then
+                                        part = char:FindFirstChild("HumanoidRootPart")
+                                    end
+                                    if part then
+                                        aimPos = PredictPosition(part)
+                                        aimPos = resolveDesyncPart(target, aimPos)
+                                        partName = part.Name
+                                    end
+                                end
                             end
                         end
-                    end
 
-                    if aimPos and target then
-                        pcall(function()
+                        if aimPos and target then
                             if getgenv().HumanizeHitPos then
                                 aimPos = sanitizePos(aimPos + Vector3.new(
                                     (math.random() * 2 - 1) * 0.15,
@@ -1437,25 +1437,35 @@ task.spawn(function()
                                 ))
                             end
 
-                            -- never send a non-finite position over the remote
                             aimPos = sanitizePos(aimPos)
-
-                            args[3] = encryptstring(partName or dmgpart)
-                            args[7] = aimPos
-                            if typeof(args[6]) == "Vector3" then
-                                args[5] = (args[6] - aimPos).Magnitude
+                            if aimPos then
+                                args[3] = encryptstring(partName or dmgpart)
+                                args[7] = aimPos
+                                if typeof(args[6]) == "Vector3" then
+                                    args[5] = (args[6] - aimPos).Magnitude
+                                end
+                                args[8] = encryptstring("nil")
+                                args[9] = encryptstring("nil")
                             end
-                            args[8] = encryptstring("nil")
-                            args[9] = encryptstring("nil")
-                        end)
+                        end
                     end
                 end
-            end
 
-            return old(self, unpack(args, 1, argCount))
+                return old(self, unpack(args, 1, argCount))
+            end, ...)
+
+            if ok then
+                return result
+            end
+            return old(self, ...)
         end, "ForceHit")
 
-        hookfunction(mainEvent.FireServer, fireHook)
+        local ok_hook, err_hook = pcall(hookfunction, mainEvent.FireServer, fireHook)
+        if not ok_hook then
+            fireHook = nil
+            warn("Failed to hook MainEvent.FireServer: " .. tostring(err_hook))
+            return
+        end
         setstackhidden(fireHook, true)
         fireHooked = true
     end
@@ -2360,6 +2370,7 @@ do
     local ChinaHatToggle = ESP:AddToggle({
         Name = "China Hat",
         Flag = "ChinaHat",
+        Option = true,
         Default = false,
         Callback = function(v)
             getgenv().ChinaHat = v
@@ -2386,142 +2397,500 @@ do
         end
     })
 
+    local PinkESPSect = VisualMenu:AddSection({ Position = 'right', Name = "PINK ESP" });
+
+    local PinkESPToggle = PinkESPSect:AddToggle({
+        Name = "Pink ESP",
+        Flag = "PinkESPEnabled",
+        Option = true,
+        Default = false,
+        Callback = function(v)
+            getgenv().PinkESPEnabled = v
+        end
+    })
+
+    PinkESPToggle.Option:AddToggle({
+        Name = "Boxes",
+        Flag = "PinkESPBox",
+        Default = true,
+        Callback = function(v)
+            getgenv().PinkESPBox = v
+        end
+    })
+
+    PinkESPToggle.Option:AddToggle({
+        Name = "Health Bar",
+        Flag = "PinkESPHealth",
+        Default = true,
+        Callback = function(v)
+            getgenv().PinkESPHealth = v
+        end
+    })
+
+    PinkESPToggle.Option:AddToggle({
+        Name = "Chams",
+        Flag = "PinkESPChams",
+        Default = true,
+        Callback = function(v)
+            getgenv().PinkESPChams = v
+        end
+    })
+
+    PinkESPToggle.Option:AddSlider({
+        Name = "Max Distance",
+        Flag = "PinkESPDistance",
+        Default = 500,
+        Min = 10,
+        Max = 5000,
+        Callback = function(v)
+            getgenv().PinkESPDistance = v
+        end
+    })
+
+    PinkESPToggle.Option:AddColorPicker({
+        Name = "ESP Color",
+        Flag = "PinkESPColor",
+        Default = Color3.fromRGB(255, 0, 100),
+        Callback = function(color)
+            getgenv().PinkESPColor = color
+        end
+    })
+
 end
 
--- ESP + China Hat engine.
---
--- Rendered with Volt's DrawingImmediate paint callback (`DrawingImmediate.GetPaint`)
--- instead of persistent Drawing objects. DrawingImmediate stamps transient primitives
--- straight into the render frame: no per-player object pool, no hide/show property
--- writes, no cleanup. Same picture, noticeably cheaper than the old `Drawing.new`
--- ESP -- a Volt-specific way to claw back render-thread time alongside the AA loop.
+-- ESP + China Hat + Pink ESP engine.
+-- Dual-mode: uses DrawingImmediate when available (Volt), falls back to Drawing.new.
 
 local function NeverHitDrawEngine()
     local Players = game:GetService("Players")
     local Camera  = workspace.CurrentCamera
+    local RunService = game:GetService("RunService")
 
+    local PINK = Color3.fromRGB(255, 0, 100)
     local WHITE = Color3.fromRGB(255, 255, 255)
     local RED   = Color3.fromRGB(255, 0, 0)
     local GREEN = Color3.fromRGB(0, 255, 0)
     local DARK  = Color3.fromRGB(40, 40, 40)
 
-    local paint = DrawingImmediate.GetPaint(5)
-    paint:Connect(function()
-        pcall(function()
-            local lp = Players.LocalPlayer
-            if not lp then return end
+    local useImmediate = DrawingImmediate and DrawingImmediate.GetPaint
 
-            -- 1) China Hat on our own head (independent of the ESP toggle).
-            if getgenv().ChinaHat and lp.Character then
-                local head = lp.Character:FindFirstChild("Head")
-                if head then
-                    local pos, onScreen = Camera:WorldToViewportPoint(head.Position)
-                    if onScreen and pos.Z > 0
-                        and pos.X > -80 and pos.X < Camera.ViewportSize.X + 80
-                        and pos.Y > -80 and pos.Y < Camera.ViewportSize.Y + 80 then
+    if useImmediate then
+        local paint = DrawingImmediate.GetPaint(5)
+        paint:Connect(function()
+            pcall(function()
+                local lp = Players.LocalPlayer
+                if not lp then return end
 
-                        local scale = Camera.ViewportSize.Y / 1080
-                        local h = (getgenv().ChinaHatSize or 40) * scale
-                        local half = h * 0.30
-                        local color = getgenv().ChinaHatColor or RED
-
-                        -- cone body
-                        DrawingImmediate.FilledTriangle(
-                            Vector2.new(pos.X, pos.Y - h),                      -- tip
-                            Vector2.new(pos.X - half, pos.Y),                    -- base L
-                            Vector2.new(pos.X + half, pos.Y),                    -- base R
-                            color, 1
-                        )
-                        -- brim (a slightly wider, lower triangle under the cone)
-                        DrawingImmediate.FilledTriangle(
-                            Vector2.new(pos.X, pos.Y + h * 0.10),
-                            Vector2.new(pos.X - half * 1.2, pos.Y),
-                            Vector2.new(pos.X + half * 1.2, pos.Y),
-                            color, 0.85
-                        )
+                -- China Hat
+                if getgenv().ChinaHat and lp.Character then
+                    local head = lp.Character:FindFirstChild("Head")
+                    if head then
+                        local pos, onScreen = Camera:WorldToViewportPoint(head.Position)
+                        if onScreen and pos.Z > 0
+                            and pos.X > -80 and pos.X < Camera.ViewportSize.X + 80
+                            and pos.Y > -80 and pos.Y < Camera.ViewportSize.Y + 80 then
+                            local scale = Camera.ViewportSize.Y / 1080
+                            local h = (getgenv().ChinaHatSize or 40) * scale
+                            local half = h * 0.30
+                            local color = getgenv().ChinaHatColor or RED
+                            DrawingImmediate.FilledTriangle(
+                                Vector2.new(pos.X, pos.Y - h),
+                                Vector2.new(pos.X - half, pos.Y),
+                                Vector2.new(pos.X + half, pos.Y),
+                                color, 1
+                            )
+                            DrawingImmediate.FilledTriangle(
+                                Vector2.new(pos.X, pos.Y + h * 0.10),
+                                Vector2.new(pos.X - half * 1.2, pos.Y),
+                                Vector2.new(pos.X + half * 1.2, pos.Y),
+                                color, 0.85
+                            )
+                        end
                     end
                 end
-            end
 
-            -- 2) ESP
-            if not getgenv().ChineseESP then return end
-            if not lp.Character then return end
+                -- Chinese ESP
+                if getgenv().ChineseESP and lp.Character then
+                    local myRoot = lp.Character:FindFirstChild("HumanoidRootPart")
+                    local showBox    = getgenv().ESPBox ~= false
+                    local showHealth = getgenv().ESPHealth ~= false
+                    local showTracer = getgenv().ESPTracer ~= false
+                    local showDist   = getgenv().ESPDistance ~= false
+                    local distLimit  = getgenv().ESPDistanceLimit or 300
 
-            local myRoot = lp.Character:FindFirstChild("HumanoidRootPart")
-            local showBox    = getgenv().ESPBox ~= false
-            local showHealth = getgenv().ESPHealth ~= false
-            local showTracer = getgenv().ESPTracer ~= false
-            local showDist   = getgenv().ESPDistance ~= false
-            local distLimit  = getgenv().ESPDistanceLimit or 300
+                    for _, plr in ipairs(Players:GetPlayers()) do
+                        if plr ~= lp and plr.Character then
+                            local hum  = plr.Character:FindFirstChildOfClass("Humanoid")
+                            local head = plr.Character:FindFirstChild("Head")
+                            local root = plr.Character:FindFirstChild("HumanoidRootPart")
+                            if hum and hum.Health > 0 and head and root then
+                                local dist = myRoot and (root.Position - myRoot.Position).Magnitude or 0
+                                if distLimit > 0 and dist > distLimit then continue end
 
-            for _, plr in ipairs(Players:GetPlayers()) do
-                if plr ~= lp and plr.Character then
-                    local hum  = plr.Character:FindFirstChildOfClass("Humanoid")
-                    local head = plr.Character:FindFirstChild("Head")
-                    local root = plr.Character:FindFirstChild("HumanoidRootPart")
-                    if hum and hum.Health > 0 and head and root then
-                        local dist = myRoot and (root.Position - myRoot.Position).Magnitude or 0
-                        if distLimit > 0 and dist > distLimit then continue end
+                                local headV, onS1 = Camera:WorldToViewportPoint(head.Position)
+                                local rootV, onS2 = Camera:WorldToViewportPoint(root.Position)
+                                if onS1 and onS2 and headV.Z > 0 then
+                                    local height = math.max(math.abs(headV.Y - rootV.Y), 4)
+                                    local width  = math.clamp(height * 0.6, 20, 400)
 
-                        local headV, onS1 = Camera:WorldToViewportPoint(head.Position)
-                        local rootV, onS2 = Camera:WorldToViewportPoint(root.Position)
-                        if onS1 and onS2 and headV.Z > 0 then
-                            local height = math.max(math.abs(headV.Y - rootV.Y), 4)
-                            local width  = math.clamp(height * 0.6, 20, 400)
-
-                            if showBox then
-                                DrawingImmediate.Rectangle(
-                                    Vector2.new(rootV.X - width / 2, headV.Y),
-                                    Vector2.new(width, height), RED, 1, 1, 1
-                                )
-                            end
-
-                            if showTracer then
-                                DrawingImmediate.Line(
-                                    Vector2.new(rootV.X, rootV.Y),
-                                    Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y),
-                                    WHITE, 1, 1
-                                )
-                            end
-
-                            if showHealth then
-                                local pct = math.clamp(hum.Health / hum.MaxHealth, 0, 1)
-                                local hx  = rootV.X - width / 2 - 5
-                                local hb  = rootV.Y + height
-                                local hh  = height * 0.25
-                                DrawingImmediate.Rectangle(Vector2.new(hx, hb - hh), Vector2.new(3, hh), DARK, 1, 1, 1)
-                                DrawingImmediate.Rectangle(Vector2.new(hx, hb - hh * pct), Vector2.new(3, hh * pct), GREEN, 1, 1, 1)
-                            end
-
-                            DrawingImmediate.Text(
-                                Vector2.new(rootV.X, headV.Y - 18),
-                                DrawingImmediate.Fonts.Monospace, 13, WHITE, 1, plr.DisplayName, true
-                            )
-
-                            if showDist then
-                                DrawingImmediate.Text(
-                                    Vector2.new(rootV.X, rootV.Y + height + 4),
-                                    DrawingImmediate.Fonts.Monospace, 11, WHITE, 1,
-                                    string.format("%.0fm", dist), true
-                                )
+                                    if showBox then
+                                        DrawingImmediate.Rectangle(
+                                            Vector2.new(rootV.X - width / 2, headV.Y),
+                                            Vector2.new(width, height), RED, 1, 1, 1
+                                        )
+                                    end
+                                    if showTracer then
+                                        DrawingImmediate.Line(
+                                            Vector2.new(rootV.X, rootV.Y),
+                                            Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y),
+                                            WHITE, 1, 1
+                                        )
+                                    end
+                                    if showHealth then
+                                        local pct = math.clamp(hum.Health / hum.MaxHealth, 0, 1)
+                                        local hx  = rootV.X - width / 2 - 5
+                                        local hb  = rootV.Y + height
+                                        local hh  = height * 0.25
+                                        DrawingImmediate.Rectangle(Vector2.new(hx, hb - hh), Vector2.new(3, hh), DARK, 1, 1, 1)
+                                        DrawingImmediate.Rectangle(Vector2.new(hx, hb - hh * pct), Vector2.new(3, hh * pct), GREEN, 1, 1, 1)
+                                    end
+                                    DrawingImmediate.Text(
+                                        Vector2.new(rootV.X, headV.Y - 18),
+                                        DrawingImmediate.Fonts.Monospace, 13, WHITE, 1, plr.DisplayName, true
+                                    )
+                                    if showDist then
+                                        DrawingImmediate.Text(
+                                            Vector2.new(rootV.X, rootV.Y + height + 4),
+                                            DrawingImmediate.Fonts.Monospace, 11, WHITE, 1,
+                                            string.format("%.0fm", dist), true
+                                        )
+                                    end
+                                end
                             end
                         end
                     end
                 end
-            end
+
+                -- Pink ESP
+                if getgenv().PinkESPEnabled and lp.Character then
+                    local myRoot = lp.Character:FindFirstChild("HumanoidRootPart")
+                    local espColor = getgenv().PinkESPColor or PINK
+                    local showBox    = getgenv().PinkESPBox ~= false
+                    local showHealth = getgenv().PinkESPHealth ~= false
+                    local showChams  = getgenv().PinkESPChams ~= false
+                    local distLimit  = getgenv().PinkESPDistance or 500
+
+                    for _, plr in ipairs(Players:GetPlayers()) do
+                        if plr ~= lp and plr.Character then
+                            local hum  = plr.Character:FindFirstChildOfClass("Humanoid")
+                            local head = plr.Character:FindFirstChild("Head")
+                            local root = plr.Character:FindFirstChild("HumanoidRootPart")
+                            if hum and hum.Health > 0 and head and root then
+                                local dist = myRoot and (root.Position - myRoot.Position).Magnitude or 0
+                                if distLimit > 0 and dist > distLimit then continue end
+
+                                local headV, onS1 = Camera:WorldToViewportPoint(head.Position)
+                                local rootV, onS2 = Camera:WorldToViewportPoint(root.Position)
+                                if onS1 and onS2 and headV.Z > 0 then
+                                    local height = math.max(math.abs(headV.Y - rootV.Y), 4)
+                                    local width  = math.clamp(height * 0.6, 20, 400)
+
+                                    if showBox then
+                                        DrawingImmediate.Rectangle(
+                                            Vector2.new(rootV.X - width / 2, headV.Y),
+                                            Vector2.new(width, height), espColor, 1, 1, 1
+                                        )
+                                    end
+                                    if showHealth then
+                                        local pct = math.clamp(hum.Health / hum.MaxHealth, 0, 1)
+                                        local hx  = rootV.X - width / 2 - 5
+                                        local hb  = rootV.Y + height
+                                        local hh  = height * 0.25
+                                        DrawingImmediate.Rectangle(Vector2.new(hx, hb - hh), Vector2.new(3, hh), DARK, 1, 1, 1)
+                                        DrawingImmediate.Rectangle(Vector2.new(hx, hb - hh * pct), Vector2.new(3, hh * pct), espColor, 1, 1, 1)
+                                    end
+                                    DrawingImmediate.Text(
+                                        Vector2.new(rootV.X, headV.Y - 18),
+                                        DrawingImmediate.Fonts.Monospace, 13, espColor, 1, plr.DisplayName, true
+                                    )
+                                end
+                            end
+                        end
+                    end
+                end
+            end)
         end)
-    end)
+    else
+        -- Fallback: Drawing.new-based engine (works on all executors)
+        local espObjects = {}
+        local chamsFolders = {}
+
+        local function clearEsp()
+            for _, objs in pairs(espObjects) do
+                for _, obj in pairs(objs) do
+                    pcall(function() obj:Remove() end)
+                end
+            end
+            espObjects = {}
+        end
+
+        local function getEspObjects(plr)
+            if espObjects[plr] then return espObjects[plr] end
+            local objs = {
+                boxOutline = Drawing.new("Square"),
+                box = Drawing.new("Square"),
+                healthBarBg = Drawing.new("Square"),
+                healthBar = Drawing.new("Square"),
+                name = Drawing.new("Text"),
+                dist = Drawing.new("Text"),
+                tracer = Drawing.new("Line"),
+            }
+            for _, o in pairs(objs) do o.Visible = false; o.ZIndex = 99 end
+            objs.boxOutline.Thickness = 3
+            objs.boxOutline.Filled = false
+            objs.box.Thickness = 1
+            objs.box.Filled = false
+            objs.healthBarBg.Thickness = 1
+            objs.healthBarBg.Filled = true
+            objs.healthBar.Thickness = 1
+            objs.healthBar.Filled = true
+            objs.name.Center = true
+            objs.name.Outlined = true
+            objs.name.Size = 13
+            objs.dist.Center = true
+            objs.dist.Outlined = true
+            objs.dist.Size = 11
+            objs.tracer.Thickness = 1
+            espObjects[plr] = objs
+            return objs
+        end
+
+        local function destroyChams(plr)
+            if chamsFolders[plr] then
+                for _, v in pairs(chamsFolders[plr]) do
+                    pcall(function() v:Destroy() end)
+                end
+                chamsFolders[plr] = nil
+            end
+        end
+
+        local function createChams(plr)
+            destroyChams(plr)
+            local highlights = {}
+            local char = plr.Character
+            if not char then return end
+            local espColor = getgenv().PinkESPColor or PINK
+            for _, part in ipairs(char:GetDescendants()) do
+                if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
+                    local h = Instance.new("Highlight")
+                    h.FillColor = espColor
+                    h.OutlineColor = espColor
+                    h.FillTransparency = 0.6
+                    h.OutlineTransparency = 0
+                    h.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+                    h.Adornee = part
+                    h.Parent = game:GetService("CoreGui")
+                    table.insert(highlights, h)
+                end
+            end
+            chamsFolders[plr] = highlights
+        end
+
+        local function removeEsp(plr)
+            if espObjects[plr] then
+                for _, obj in pairs(espObjects[plr]) do
+                    pcall(function() obj:Remove() end)
+                end
+                espObjects[plr] = nil
+            end
+            destroyChams(plr)
+        end
+
+        RunService.RenderStepped:Connect(function()
+            pcall(function()
+                local lp = Players.LocalPlayer
+                if not lp or not lp.Character then return end
+                local myRoot = lp.Character:FindFirstChild("HumanoidRootPart")
+
+                -- China Hat via Drawing
+                if getgenv().ChinaHat then
+                    local head = lp.Character:FindFirstChild("Head")
+                    if head then
+                        local pos, onScreen = Camera:WorldToViewportPoint(head.Position)
+                        if onScreen and pos.Z > 0 then
+                            local scale = Camera.ViewportSize.Y / 1080
+                            local h = (getgenv().ChinaHatSize or 40) * scale
+                            local half = h * 0.30
+                            local color = getgenv().ChinaHatColor or RED
+                            if not espObjects._chinaHatTip then
+                                espObjects._chinaHatTip = Drawing.new("Triangle")
+                                espObjects._chinaHatTip.Filled = true
+                                espObjects._chinaHatTip.Visible = false
+                                espObjects._chinaHatTip.ZIndex = 98
+                                espObjects._chinaHatBrim = Drawing.new("Triangle")
+                                espObjects._chinaHatBrim.Filled = true
+                                espObjects._chinaHatBrim.Visible = false
+                                espObjects._chinaHatBrim.ZIndex = 98
+                            end
+                            local tip = espObjects._chinaHatTip
+                            local brim = espObjects._chinaHatBrim
+                            tip.PointA = Vector2.new(pos.X, pos.Y - h)
+                            tip.PointB = Vector2.new(pos.X - half, pos.Y)
+                            tip.PointC = Vector2.new(pos.X + half, pos.Y)
+                            tip.Color = color
+                            tip.Visible = true
+                            brim.PointA = Vector2.new(pos.X, pos.Y + h * 0.10)
+                            brim.PointB = Vector2.new(pos.X - half * 1.2, pos.Y)
+                            brim.PointC = Vector2.new(pos.X + half * 1.2, pos.Y)
+                            brim.Color = color
+                            brim.Visible = true
+                        else
+                            if espObjects._chinaHatTip then espObjects._chinaHatTip.Visible = false end
+                            if espObjects._chinaHatBrim then espObjects._chinaHatBrim.Visible = false end
+                        end
+                    end
+                else
+                    if espObjects._chinaHatTip then espObjects._chinaHatTip.Visible = false end
+                    if espObjects._chinaHatBrim then espObjects._chinaHatBrim.Visible = false end
+                end
+
+                -- Chinese ESP
+                for _, plr in ipairs(Players:GetPlayers()) do
+                    if plr == lp then continue end
+                    local char = plr.Character
+                    if not char then removeEsp(plr); continue end
+                    local hum  = char:FindFirstChildOfClass("Humanoid")
+                    local head = char:FindFirstChild("Head")
+                    local root = char:FindFirstChild("HumanoidRootPart")
+                    if not (hum and hum.Health > 0 and head and root) then removeEsp(plr); continue end
+
+                    local shouldShow = getgenv().ChineseESP
+                    local shouldShowPink = getgenv().PinkESPEnabled
+                    local dist = myRoot and (root.Position - myRoot.Position).Magnitude or 0
+                    local pinkDist = getgenv().PinkESPDistance or 500
+                    local chinaDist = getgenv().ESPDistanceLimit or 300
+
+                    if not shouldShow and not shouldShowPink then removeEsp(plr); continue end
+                    if shouldShow and chinaDist > 0 and dist > chinaDist then shouldShow = false end
+                    if shouldShowPink and pinkDist > 0 and dist > pinkDist then shouldShowPink = false end
+                    if not shouldShow and not shouldShowPink then removeEsp(plr); continue end
+
+                    local objs = getEspObjects(plr)
+                    local headV, onS1 = Camera:WorldToViewportPoint(head.Position)
+                    local rootV, onS2 = Camera:WorldToViewportPoint(root.Position)
+                    if not (onS1 and onS2 and headV.Z > 0) then
+                        for _, o in pairs(objs) do o.Visible = false end
+                        continue
+                    end
+
+                    local height = math.max(math.abs(headV.Y - rootV.Y), 4)
+                    local width  = math.clamp(height * 0.6, 20, 400)
+                    local espColor = shouldShowPink and (getgenv().PinkESPColor or PINK) or RED
+
+                    -- Box
+                    if (shouldShow and getgenv().ESPBox ~= false) or (shouldShowPink and getgenv().PinkESPBox ~= false) then
+                        objs.boxOutline.Position = Vector2.new(rootV.X - width / 2 - 1, headV.Y - 1)
+                        objs.boxOutline.Size = Vector2.new(width + 2, height + 2)
+                        objs.boxOutline.Color = Color3.new(0, 0, 0)
+                        objs.boxOutline.Visible = true
+                        objs.box.Position = Vector2.new(rootV.X - width / 2, headV.Y)
+                        objs.box.Size = Vector2.new(width, height)
+                        objs.box.Color = espColor
+                        objs.box.Visible = true
+                    else
+                        objs.boxOutline.Visible = false
+                        objs.box.Visible = false
+                    end
+
+                    -- Health Bar
+                    if (shouldShow and getgenv().ESPHealth ~= false) or (shouldShowPink and getgenv().PinkESPHealth ~= false) then
+                        local pct = math.clamp(hum.Health / hum.MaxHealth, 0, 1)
+                        local hx = rootV.X - width / 2 - 5
+                        local hb = rootV.Y + height
+                        local hh = height * 0.25
+                        objs.healthBarBg.Position = Vector2.new(hx, hb - hh)
+                        objs.healthBarBg.Size = Vector2.new(3, hh)
+                        objs.healthBarBg.Color = DARK
+                        objs.healthBarBg.Visible = true
+                        objs.healthBar.Position = Vector2.new(hx, hb - hh * pct)
+                        objs.healthBar.Size = Vector2.new(3, hh * pct)
+                        objs.healthBar.Color = pct > 0.5 and GREEN or Color3.fromRGB(255, 165, 0)
+                        objs.healthBar.Visible = true
+                    else
+                        objs.healthBarBg.Visible = false
+                        objs.healthBar.Visible = false
+                    end
+
+                    -- Tracer (Chinese ESP only)
+                    if shouldShow and getgenv().ESPTracer ~= false then
+                        objs.tracer.From = Vector2.new(rootV.X, rootV.Y)
+                        objs.tracer.To = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y)
+                        objs.tracer.Color = WHITE
+                        objs.tracer.Visible = true
+                    else
+                        objs.tracer.Visible = false
+                    end
+
+                    -- Name
+                    objs.name.Position = Vector2.new(rootV.X, headV.Y - 18)
+                    objs.name.Color = espColor
+                    objs.name.Text = plr.DisplayName
+                    objs.name.Visible = true
+
+                    -- Distance
+                    if shouldShow and getgenv().ESPDistance ~= false then
+                        objs.dist.Position = Vector2.new(rootV.X, rootV.Y + height + 4)
+                        objs.dist.Color = WHITE
+                        objs.dist.Text = string.format("%.0fm", dist)
+                        objs.dist.Visible = true
+                    else
+                        objs.dist.Visible = false
+                    end
+
+                    -- Pink ESP Chams
+                    if shouldShowPink and getgenv().PinkESPChams ~= false then
+                        if not chamsFolders[plr] then
+                            createChams(plr)
+                        end
+                    else
+                        destroyChams(plr)
+                    end
+                end
+
+                -- cleanup disconnected players
+                for plr, _ in pairs(espObjects) do
+                    if plr ~= "_chinaHatTip" and plr ~= "_chinaHatBrim" then
+                        if not Players:FindFirstChild(plr.Name) then
+                            removeEsp(plr)
+                        end
+                    end
+                end
+            end)
+        end)
+
+        -- re-create chams on respawn
+        Players.PlayerAdded:Connect(function(plr)
+            plr.CharacterAdded:Connect(function()
+                task.wait(0.5)
+                if getgenv().PinkESPEnabled and getgenv().PinkESPChams ~= false then
+                    createChams(plr)
+                end
+            end)
+        end)
+        for _, plr in ipairs(Players:GetPlayers()) do
+            if plr ~= Players.LocalPlayer then
+                plr.CharacterAdded:Connect(function()
+                    task.wait(0.5)
+                    if getgenv().PinkESPEnabled and getgenv().PinkESPChams ~= false then
+                        createChams(plr)
+                    end
+                end)
+            end
+        end
+    end
 end
 
 task.spawn(function()
-    if not DrawingImmediate or not DrawingImmediate.GetPaint then
-        Notification:Notify({
-            Title = "Warning",
-            Content = "DrawingImmediate is missing, can't start ESP / China Hat.",
-            Icon = "bell"
-        })
-        return
-    end
     NeverHitDrawEngine()
 end)
 
