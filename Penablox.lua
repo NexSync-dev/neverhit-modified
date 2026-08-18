@@ -222,6 +222,8 @@ if getgenv().ChinaHat == nil then
     getgenv().ChinaHat = false
     getgenv().ChinaHatSize = 40          -- cone height in viewport px (scaled by res)
     getgenv().ChinaHatColor = Color3.fromRGB(255, 0, 0)
+    getgenv().ChinaHatSegments = 8       -- rim polygon smoothness
+    getgenv().ChinaHatRadius = 55        -- cone radius as % of height
 end
 
 -- The global __newindex yaw hook is the known FPS killer (240->60 when holding a
@@ -2089,10 +2091,10 @@ do
     })
 
     AA_General:AddDropdown({
-        Name = "Mode",
+        Name = "Mode (Manual)",
         Flag = "AntiAimMode",
-        Values = {"Static","Offset","Center","3-Way","5-Way","Off","NeverHit","True Random"},
-        Default = "NeverHit",
+        Values = {"Static","Offset","Center","3-Way","5-Way"},
+        Default = "Static",
         Callback = function(v)
             getgenv().typeofantiaim = v
         end
@@ -2132,18 +2134,9 @@ do
             getgenv().TrueRandomAA = true
             Notification:Notify({
                 Title = "NeverHit",
-                Content = "True Random enabled — deep biased desync, extreme pitch, wide jitter, random base yaw.",
+                Content = "True Random enabled — deep biased desync, extreme pitch, wide jitter.",
                 Icon = "shield"
             })
-        end
-    })
-
-    AA_General:AddToggle({
-        Name = "Max Random (Body/Pitch)",
-        Flag = "MaxRandomAA",
-        Default = false,
-        Callback = function(v)
-            getgenv().MaxRandomAA = v
         end
     })
 
@@ -2538,6 +2531,28 @@ do
         end
     })
 
+    ChinaHatToggle.Option:AddSlider({
+        Name = "Segments",
+        Flag = "ChinaHatSegments",
+        Default = 8,
+        Min = 4,
+        Max = 32,
+        Callback = function(v)
+            getgenv().ChinaHatSegments = v
+        end
+    })
+
+    ChinaHatToggle.Option:AddSlider({
+        Name = "Radius",
+        Flag = "ChinaHatRadius",
+        Default = 55,
+        Min = 20,
+        Max = 100,
+        Callback = function(v)
+            getgenv().ChinaHatRadius = v
+        end
+    })
+
     local PinkESPSect = VisualMenu:AddSection({ Position = 'right', Name = "PINK ESP" });
 
     local PinkESPToggle = PinkESPSect:AddToggle({
@@ -2614,6 +2629,9 @@ local function NeverHitDrawEngine()
     local YELLOW = Color3.fromRGB(255, 255, 0)
     local DARK  = Color3.fromRGB(40, 40, 40)
 
+    -- Team check: Penablox HVH uses a custom team system, not Roblox's built-in
+    -- Teams service. plr.Team is nil for everyone, so this is effectively a no-op.
+    -- Kept for future compatibility if the game adds proper teams.
     local function isTeammate(plr)
         local lp = Players.LocalPlayer
         if not lp or not plr then return false end
@@ -2654,6 +2672,40 @@ local function NeverHitDrawEngine()
         return height, width, centerX, minY
     end
 
+    -- Chams: shared between both render paths (Highlight instances on CoreGui)
+    local chamsFolders = {}
+
+    local function destroyChams(plr)
+        if chamsFolders[plr] then
+            for _, v in pairs(chamsFolders[plr]) do
+                pcall(function() v:Destroy() end)
+            end
+            chamsFolders[plr] = nil
+        end
+    end
+
+    local function createChams(plr)
+        destroyChams(plr)
+        local highlights = {}
+        local char = plr.Character
+        if not char then return end
+        local espColor = getgenv().PinkESPColor or BABY_PINK
+        for _, part in ipairs(char:GetDescendants()) do
+            if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
+                local h = Instance.new("Highlight")
+                h.FillColor = espColor
+                h.OutlineColor = espColor
+                h.FillTransparency = 0.6
+                h.OutlineTransparency = 0
+                h.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+                h.Adornee = part
+                h.Parent = game:GetService("CoreGui")
+                table.insert(highlights, h)
+            end
+        end
+        chamsFolders[plr] = highlights
+    end
+
     local useImmediate = DrawingImmediate and DrawingImmediate.GetPaint
 
     if useImmediate then
@@ -2670,8 +2722,8 @@ local function NeverHitDrawEngine()
                         local color = getgenv().ChinaHatColor or BABY_PINK
                         local style = getgenv().ChinaHatStyle or "Solid"
                         local hatWorldH = (getgenv().ChinaHatSize or 40) / 60
-                        local hatWorldR = hatWorldH * 0.55
-                        local rimSegs = 8
+                        local hatWorldR = hatWorldH * ((getgenv().ChinaHatRadius or 55) / 100)
+                        local rimSegs = getgenv().ChinaHatSegments or 8
 
                         local headPos = head.Position
                         local tipWorld = headPos + Vector3.new(0, hatWorldH, 0)
@@ -2704,8 +2756,7 @@ local function NeverHitDrawEngine()
                                     end
                                     local brimV = {}
                                     for i = 1, rimSegs do
-                                        local vp = Camera:WorldToViewportPoint(brimWorld[i])
-                                        brimV[i] = vp
+                                        brimV[i] = Camera:WorldToViewportPoint(brimWorld[i])
                                     end
                                     for i = 1, rimSegs do
                                         local j = (i % rimSegs) + 1
@@ -2840,7 +2891,23 @@ local function NeverHitDrawEngine()
                                     DrawingImmediate.Fonts.Monospace, 13, espColor, 1, plr.DisplayName, true
                                 )
                                 end -- bboxH
+
+                                -- Chams (Highlight instances, shared with Drawing.new path)
+                                if getgenv().PinkESPChams ~= false then
+                                    if not chamsFolders[plr] then
+                                        createChams(plr)
+                                    end
+                                else
+                                    destroyChams(plr)
+                                end
                             end
+                        end
+                    end
+
+                    -- Cleanup chams for players no longer rendered
+                    for plr, _ in pairs(chamsFolders) do
+                        if type(plr) ~= "string" and not Players:FindFirstChild(plr.Name) then
+                            destroyChams(plr)
                         end
                     end
                 end
@@ -2849,7 +2916,6 @@ local function NeverHitDrawEngine()
     else
         -- Fallback: Drawing.new-based engine (works on all executors)
         local espObjects = {}
-        local chamsFolders = {}
 
         local function clearEsp()
             for _, objs in pairs(espObjects) do
@@ -2889,37 +2955,6 @@ local function NeverHitDrawEngine()
             objs.tracer.Thickness = 1
             espObjects[plr] = objs
             return objs
-        end
-
-        local function destroyChams(plr)
-            if chamsFolders[plr] then
-                for _, v in pairs(chamsFolders[plr]) do
-                    pcall(function() v:Destroy() end)
-                end
-                chamsFolders[plr] = nil
-            end
-        end
-
-        local function createChams(plr)
-            destroyChams(plr)
-            local highlights = {}
-            local char = plr.Character
-            if not char then return end
-            local espColor = getgenv().PinkESPColor or BABY_PINK
-            for _, part in ipairs(char:GetDescendants()) do
-                if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
-                    local h = Instance.new("Highlight")
-                    h.FillColor = espColor
-                    h.OutlineColor = espColor
-                    h.FillTransparency = 0.6
-                    h.OutlineTransparency = 0
-                    h.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
-                    h.Adornee = part
-                    h.Parent = game:GetService("CoreGui")
-                    table.insert(highlights, h)
-                end
-            end
-            chamsFolders[plr] = highlights
         end
 
         local function removeEsp(plr)
@@ -2965,8 +3000,8 @@ local function NeverHitDrawEngine()
                         local color = getgenv().ChinaHatColor or BABY_PINK
                         local style = getgenv().ChinaHatStyle or "Solid"
                         local hatWorldH = (getgenv().ChinaHatSize or 40) / 60
-                        local hatWorldR = hatWorldH * 0.55
-                        local rimSegs = 8
+                        local hatWorldR = hatWorldH * ((getgenv().ChinaHatRadius or 55) / 100)
+                        local rimSegs = getgenv().ChinaHatSegments or 8
 
                         local headPos = head.Position
                         local tipWorld = headPos + Vector3.new(0, hatWorldH, 0)
