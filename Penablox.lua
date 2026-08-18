@@ -712,9 +712,9 @@ task.spawn(function()
         local interval = 0.05
         if G.UnhittableEngine then
             local rate = G.UnhittableRate or 60
-            -- each tick fires 3 server round-trips (SendYawJitter/BodyYaw/PitchMode);
-            -- uncapped presets (120) spam ~360 remotes/sec and lag the whole server.
             interval = 1 / math.clamp(rate, 1, 60)
+        elseif G.TrueRandomAA then
+            interval = 1 / 60
         end
         task.wait(interval)
 
