@@ -609,9 +609,9 @@ task.spawn(function()
     local trueRandomFrame = 0
     local function hashMix(x)
         x = bit32.bxor(x, bit32.rshift(x, 16))
-        x = bit32.mul(x, 0x45d9f3b)
+        x = bit32.band(x * 0x45d9f3b, 0xFFFFFFFF)
         x = bit32.bxor(x, bit32.rshift(x, 16))
-        x = bit32.mul(x, 0x45d9f3b)
+        x = bit32.band(x * 0x45d9f3b, 0xFFFFFFFF)
         x = bit32.bxor(x, bit32.rshift(x, 16))
         return x
     end
@@ -2570,10 +2570,25 @@ local function NeverHitDrawEngine()
         end
     end
 
-    local function getBoundingBox(headV, rootV)
-        local height = math.max(math.abs(headV.Y - rootV.Y), 4)
-        local width  = math.max(height * 0.55, 16)
-        return height, width
+    local function getBoundingBox(head, root, Camera)
+        local headPos = head.Position + Vector3.new(0, 0.5, 0)
+        local rootPos = root.Position
+        local leg = root.Parent:FindFirstChild("Left Leg") or root.Parent:FindFirstChild("LeftFoot") or root
+        local legPos = leg.Position - Vector3.new(0, 1.2, 0)
+        local right = root.CFrame.RightVector * 1.5
+        local topL, tOn1 = Camera:WorldToViewportPoint(headPos + right)
+        local topR, tOn2 = Camera:WorldToViewportPoint(headPos - right)
+        local botL, bOn1 = Camera:WorldToViewportPoint(legPos + right)
+        local botR, bOn2 = Camera:WorldToViewportPoint(legPos - right)
+        if not (tOn1 and tOn2 and bOn1 and bOn2) then return nil end
+        local minX = math.min(topL.X, topR.X, botL.X, botR.X)
+        local maxX = math.max(topL.X, topR.X, botL.X, botR.X)
+        local minY = math.min(topL.Y, topR.Y, botL.Y, botR.Y)
+        local maxY = math.max(topL.Y, topR.Y, botL.Y, botR.Y)
+        local height = math.max(maxY - minY, 4)
+        local width = math.max(maxX - minX, 4)
+        local centerX = (minX + maxX) / 2
+        return height, width, centerX, minY
     end
 
     local useImmediate = DrawingImmediate and DrawingImmediate.GetPaint
@@ -2585,71 +2600,79 @@ local function NeverHitDrawEngine()
                 local lp = Players.LocalPlayer
                 if not lp then return end
 
-                -- China Hat
+                -- China Hat (true 3D: project world-space cone vertices)
                 if getgenv().ChinaHat and lp.Character then
                     local head = lp.Character:FindFirstChild("Head")
                     if head then
-                        local pos, onScreen = Camera:WorldToViewportPoint(head.Position)
-                        if onScreen and pos.Z > 0
-                            and pos.X > -80 and pos.X < Camera.ViewportSize.X + 80
-                            and pos.Y > -80 and pos.Y < Camera.ViewportSize.Y + 80 then
-                            local scale = Camera.ViewportSize.Y / 1080
-                            local h = (getgenv().ChinaHatSize or 40) * scale
-                            local half = h * 0.30
-                            local color = getgenv().ChinaHatColor or BABY_PINK
-                            local style = getgenv().ChinaHatStyle or "Solid"
+                        local color = getgenv().ChinaHatColor or BABY_PINK
+                        local style = getgenv().ChinaHatStyle or "Solid"
+                        local hatWorldH = (getgenv().ChinaHatSize or 40) / 60
+                        local hatWorldR = hatWorldH * 0.55
+                        local rimSegs = 8
 
-                            if style == "Forcefield" then
-                                DrawingImmediate.FilledTriangle(
-                                    Vector2.new(pos.X, pos.Y - h),
-                                    Vector2.new(pos.X - half, pos.Y),
-                                    Vector2.new(pos.X + half, pos.Y),
-                                    color, 0.45
-                                )
-                                DrawingImmediate.FilledTriangle(
-                                    Vector2.new(pos.X, pos.Y + h * 0.10),
-                                    Vector2.new(pos.X - half * 1.2, pos.Y),
-                                    Vector2.new(pos.X + half * 1.2, pos.Y),
-                                    color, 0.35
-                                )
-                                DrawingImmediate.Line(
-                                    Vector2.new(pos.X, pos.Y - h),
-                                    Vector2.new(pos.X - half, pos.Y), color, 1.5, 1
-                                )
-                                DrawingImmediate.Line(
-                                    Vector2.new(pos.X, pos.Y - h),
-                                    Vector2.new(pos.X + half, pos.Y), color, 1.5, 1
-                                )
-                                DrawingImmediate.Line(
-                                    Vector2.new(pos.X - half, pos.Y),
-                                    Vector2.new(pos.X + half, pos.Y), color, 1.5, 1
-                                )
-                            elseif style == "Wireframe" then
-                                DrawingImmediate.Line(
-                                    Vector2.new(pos.X, pos.Y - h),
-                                    Vector2.new(pos.X - half, pos.Y), color, 1.5, 1
-                                )
-                                DrawingImmediate.Line(
-                                    Vector2.new(pos.X, pos.Y - h),
-                                    Vector2.new(pos.X + half, pos.Y), color, 1.5, 1
-                                )
-                                DrawingImmediate.Line(
-                                    Vector2.new(pos.X - half, pos.Y),
-                                    Vector2.new(pos.X + half, pos.Y), color, 1.5, 1
-                                )
-                            else
-                                DrawingImmediate.FilledTriangle(
-                                    Vector2.new(pos.X, pos.Y - h),
-                                    Vector2.new(pos.X - half, pos.Y),
-                                    Vector2.new(pos.X + half, pos.Y),
-                                    color, 1
-                                )
-                                DrawingImmediate.FilledTriangle(
-                                    Vector2.new(pos.X, pos.Y + h * 0.10),
-                                    Vector2.new(pos.X - half * 1.2, pos.Y),
-                                    Vector2.new(pos.X + half * 1.2, pos.Y),
-                                    color, 0.85
-                                )
+                        local headPos = head.Position
+                        local tipWorld = headPos + Vector3.new(0, hatWorldH, 0)
+                        local rimWorld = {}
+                        for i = 1, rimSegs do
+                            local a = (i / rimSegs) * math.pi * 2
+                            rimWorld[i] = headPos + Vector3.new(math.cos(a) * hatWorldR, 0, math.sin(a) * hatWorldR)
+                        end
+                        local brimWorld = {}
+                        for i = 1, rimSegs do
+                            local a = (i / rimSegs) * math.pi * 2
+                            brimWorld[i] = headPos + Vector3.new(math.cos(a) * hatWorldR * 1.3, -hatWorldH * 0.10, math.sin(a) * hatWorldR * 1.3)
+                        end
+
+                        local tipV, tipOn = Camera:WorldToViewportPoint(tipWorld)
+                        if tipOn and tipV.Z > 0 then
+                            local rimV = {}
+                            local allOn = true
+                            for i = 1, rimSegs do
+                                local vp, on = Camera:WorldToViewportPoint(rimWorld[i])
+                                rimV[i] = vp
+                                if not on or vp.Z <= 0 then allOn = false end
+                            end
+
+                            if allOn then
+                                if style == "Forcefield" then
+                                    for i = 1, rimSegs do
+                                        local j = (i % rimSegs) + 1
+                                        DrawingImmediate.FilledTriangle(tipV, rimV[i], rimV[j], color, 0.45)
+                                    end
+                                    local brimV = {}
+                                    for i = 1, rimSegs do
+                                        local vp = Camera:WorldToViewportPoint(brimWorld[i])
+                                        brimV[i] = vp
+                                    end
+                                    for i = 1, rimSegs do
+                                        local j = (i % rimSegs) + 1
+                                        DrawingImmediate.FilledTriangle(brimV[i], rimV[i], rimV[j], color, 0.35)
+                                    end
+                                    for i = 1, rimSegs do
+                                        local j = (i % rimSegs) + 1
+                                        DrawingImmediate.Line(tipV, rimV[i], color, 1.5, 1)
+                                        DrawingImmediate.Line(rimV[i], rimV[j], color, 1.5, 1)
+                                    end
+                                elseif style == "Wireframe" then
+                                    for i = 1, rimSegs do
+                                        local j = (i % rimSegs) + 1
+                                        DrawingImmediate.Line(tipV, rimV[i], color, 1.5, 1)
+                                        DrawingImmediate.Line(rimV[i], rimV[j], color, 1.5, 1)
+                                    end
+                                else
+                                    for i = 1, rimSegs do
+                                        local j = (i % rimSegs) + 1
+                                        DrawingImmediate.FilledTriangle(tipV, rimV[i], rimV[j], color, 1)
+                                    end
+                                    local brimV = {}
+                                    for i = 1, rimSegs do
+                                        brimV[i] = Camera:WorldToViewportPoint(brimWorld[i])
+                                    end
+                                    for i = 1, rimSegs do
+                                        local j = (i % rimSegs) + 1
+                                        DrawingImmediate.FilledTriangle(brimV[i], rimV[i], rimV[j], color, 0.85)
+                                    end
+                                end
                             end
                         end
                     end
@@ -2669,49 +2692,47 @@ local function NeverHitDrawEngine()
                             local hum  = plr.Character:FindFirstChildOfClass("Humanoid")
                             local head = plr.Character:FindFirstChild("Head")
                             local root = plr.Character:FindFirstChild("HumanoidRootPart")
-                            if hum and hum.Health > 0 and head and root then
-                                local dist = myRoot and (root.Position - myRoot.Position).Magnitude or 0
-                                if distLimit > 0 and dist > distLimit then continue end
+                                if hum and hum.Health > 0 and head and root then
+                                    local dist = myRoot and (root.Position - myRoot.Position).Magnitude or 0
+                                    if distLimit > 0 and dist > distLimit then continue end
 
-                                local headV, onS1 = Camera:WorldToViewportPoint(head.Position)
-                                local rootV, onS2 = Camera:WorldToViewportPoint(root.Position)
-                                if onS1 and onS2 and headV.Z > 0 then
-                                    local height, width = getBoundingBox(headV, rootV)
+                                    local bboxH, bboxW, bboxCX, bboxTopY = getBoundingBox(head, root, Camera)
+                                    if bboxH then
 
                                     if showBox then
                                         DrawingImmediate.Rectangle(
-                                            Vector2.new(rootV.X - width / 2, headV.Y),
-                                            Vector2.new(width, height), RED, 1, 1, 1
+                                            Vector2.new(bboxCX - bboxW / 2, bboxTopY),
+                                            Vector2.new(bboxW, bboxH), RED, 1, 1, 1
                                         )
                                     end
                                     if showTracer then
                                         DrawingImmediate.Line(
-                                            Vector2.new(rootV.X, rootV.Y),
+                                            Vector2.new(bboxCX, bboxTopY + bboxH),
                                             Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y),
                                             WHITE, 1, 1
                                         )
                                     end
                                     if showHealth then
                                         local pct = math.clamp(hum.Health / hum.MaxHealth, 0, 1)
-                                        local hx  = rootV.X - width / 2 - 5
-                                        local hb  = rootV.Y + height
-                                        local hh  = height * 0.25
+                                        local hx  = bboxCX - bboxW / 2 - 5
+                                        local hb  = bboxTopY + bboxH
+                                        local hh  = bboxH * 0.25
                                         DrawingImmediate.Rectangle(Vector2.new(hx, hb - hh), Vector2.new(3, hh), DARK, 1, 1, 1)
                                         DrawingImmediate.Rectangle(Vector2.new(hx, hb - hh * pct), Vector2.new(3, hh * pct), GREEN, 1, 1, 1)
                                     end
                                     DrawingImmediate.Text(
-                                        Vector2.new(rootV.X, headV.Y - 18),
+                                        Vector2.new(bboxCX, bboxTopY - 18),
                                         DrawingImmediate.Fonts.Monospace, 13, WHITE, 1, plr.DisplayName, true
                                     )
                                     if showDist then
                                         DrawingImmediate.Text(
-                                            Vector2.new(rootV.X, rootV.Y + height + 4),
+                                            Vector2.new(bboxCX, bboxTopY + bboxH + 4),
                                             DrawingImmediate.Fonts.Monospace, 11, WHITE, 1,
                                             string.format("%.0fm", dist), true
                                         )
                                     end
+                                    end -- bboxH
                                 end
-                            end
                         end
                     end
                 end
@@ -2734,30 +2755,28 @@ local function NeverHitDrawEngine()
                                 local dist = myRoot and (root.Position - myRoot.Position).Magnitude or 0
                                 if distLimit > 0 and dist > distLimit then continue end
 
-                                local headV, onS1 = Camera:WorldToViewportPoint(head.Position)
-                                local rootV, onS2 = Camera:WorldToViewportPoint(root.Position)
-                                if onS1 and onS2 and headV.Z > 0 then
-                                    local height, width = getBoundingBox(headV, rootV)
+                                local bboxH, bboxW, bboxCX, bboxTopY = getBoundingBox(head, root, Camera)
+                                if bboxH then
 
-                                    if showBox then
-                                        DrawingImmediate.Rectangle(
-                                            Vector2.new(rootV.X - width / 2, headV.Y),
-                                            Vector2.new(width, height), espColor, 1, 1, 1
-                                        )
-                                    end
-                                    if showHealth then
-                                        local pct = math.clamp(hum.Health / hum.MaxHealth, 0, 1)
-                                        local hx  = rootV.X - width / 2 - 5
-                                        local hb  = rootV.Y + height
-                                        local hh  = height * 0.25
-                                        DrawingImmediate.Rectangle(Vector2.new(hx, hb - hh), Vector2.new(3, hh), DARK, 1, 1, 1)
-                                        DrawingImmediate.Rectangle(Vector2.new(hx, hb - hh * pct), Vector2.new(3, hh * pct), hpColor(pct), 1, 1, 1)
-                                    end
-                                    DrawingImmediate.Text(
-                                        Vector2.new(rootV.X, headV.Y - 18),
-                                        DrawingImmediate.Fonts.Monospace, 13, espColor, 1, plr.DisplayName, true
+                                if showBox then
+                                    DrawingImmediate.Rectangle(
+                                        Vector2.new(bboxCX - bboxW / 2, bboxTopY),
+                                        Vector2.new(bboxW, bboxH), espColor, 1, 1, 1
                                     )
                                 end
+                                if showHealth then
+                                    local pct = math.clamp(hum.Health / hum.MaxHealth, 0, 1)
+                                    local hx  = bboxCX - bboxW / 2 - 5
+                                    local hb  = bboxTopY + bboxH
+                                    local hh  = bboxH * 0.25
+                                    DrawingImmediate.Rectangle(Vector2.new(hx, hb - hh), Vector2.new(3, hh), DARK, 1, 1, 1)
+                                    DrawingImmediate.Rectangle(Vector2.new(hx, hb - hh * pct), Vector2.new(3, hh * pct), hpColor(pct), 1, 1, 1)
+                                end
+                                DrawingImmediate.Text(
+                                    Vector2.new(bboxCX, bboxTopY - 18),
+                                    DrawingImmediate.Fonts.Monospace, 13, espColor, 1, plr.DisplayName, true
+                                )
+                                end -- bboxH
                             end
                         end
                     end
@@ -2850,24 +2869,24 @@ local function NeverHitDrawEngine()
             destroyChams(plr)
         end
 
-        -- China Hat Drawing objects (created lazily)
-        local hatCone, hatBrim, hatWire1, hatWire2, hatWire3
+        -- China Hat Drawing objects (pool, grown lazily)
+        local hatPool = {}
+        local hatPoolN = 0
 
-        local function ensureHatObjects()
-            if hatCone then return end
-            hatCone = Drawing.new("Triangle"); hatCone.Filled = true; hatCone.Visible = false; hatCone.ZIndex = 98
-            hatBrim = Drawing.new("Triangle"); hatBrim.Filled = true; hatBrim.Visible = false; hatBrim.ZIndex = 98
-            hatWire1 = Drawing.new("Line"); hatWire1.Visible = false; hatWire1.ZIndex = 98; hatWire1.Thickness = 1.5
-            hatWire2 = Drawing.new("Line"); hatWire2.Visible = false; hatWire2.ZIndex = 98; hatWire2.Thickness = 1.5
-            hatWire3 = Drawing.new("Line"); hatWire3.Visible = false; hatWire3.ZIndex = 98; hatWire3.Thickness = 1.5
+        local function ensureHatPool(n)
+            while hatPoolN < n do
+                hatPoolN = hatPoolN + 1
+                local tri = Drawing.new("Triangle"); tri.Filled = true; tri.Visible = false; tri.ZIndex = 98
+                local line = Drawing.new("Line"); line.Visible = false; line.ZIndex = 98; line.Thickness = 1.5
+                hatPool[hatPoolN] = {tri = tri, line = line}
+            end
         end
 
-        local function hideHat()
-            if hatCone then hatCone.Visible = false end
-            if hatBrim then hatBrim.Visible = false end
-            if hatWire1 then hatWire1.Visible = false end
-            if hatWire2 then hatWire2.Visible = false end
-            if hatWire3 then hatWire3.Visible = false end
+        local function hideAllHat()
+            for i = 1, hatPoolN do
+                hatPool[i].tri.Visible = false
+                hatPool[i].line.Visible = false
+            end
         end
 
         RunService.RenderStepped:Connect(function()
@@ -2876,54 +2895,108 @@ local function NeverHitDrawEngine()
                 if not lp or not lp.Character then return end
                 local myRoot = lp.Character:FindFirstChild("HumanoidRootPart")
 
-                -- China Hat via Drawing
+                -- China Hat (true 3D)
                 if getgenv().ChinaHat then
                     local head = lp.Character:FindFirstChild("Head")
                     if head then
-                        local pos, onScreen = Camera:WorldToViewportPoint(head.Position)
-                        if onScreen and pos.Z > 0 then
-                            ensureHatObjects()
-                            local scale = Camera.ViewportSize.Y / 1080
-                            local h = (getgenv().ChinaHatSize or 40) * scale
-                            local half = h * 0.30
-                            local color = getgenv().ChinaHatColor or BABY_PINK
-                            local style = getgenv().ChinaHatStyle or "Solid"
+                        local color = getgenv().ChinaHatColor or BABY_PINK
+                        local style = getgenv().ChinaHatStyle or "Solid"
+                        local hatWorldH = (getgenv().ChinaHatSize or 40) / 60
+                        local hatWorldR = hatWorldH * 0.55
+                        local rimSegs = 8
 
-                            local tipA = Vector2.new(pos.X, pos.Y - h)
-                            local baseL = Vector2.new(pos.X - half, pos.Y)
-                            local baseR = Vector2.new(pos.X + half, pos.Y)
-                            local brimL = Vector2.new(pos.X - half * 1.2, pos.Y)
-                            local brimR = Vector2.new(pos.X + half * 1.2, pos.Y)
+                        local headPos = head.Position
+                        local tipWorld = headPos + Vector3.new(0, hatWorldH, 0)
+                        local rimWorld = {}
+                        for i = 1, rimSegs do
+                            local a = (i / rimSegs) * math.pi * 2
+                            rimWorld[i] = headPos + Vector3.new(math.cos(a) * hatWorldR, 0, math.sin(a) * hatWorldR)
+                        end
+                        local brimWorld = {}
+                        for i = 1, rimSegs do
+                            local a = (i / rimSegs) * math.pi * 2
+                            brimWorld[i] = headPos + Vector3.new(math.cos(a) * hatWorldR * 1.3, -hatWorldH * 0.10, math.sin(a) * hatWorldR * 1.3)
+                        end
 
-                            if style == "Forcefield" then
-                                hatCone.PointA = tipA; hatCone.PointB = baseL; hatCone.PointC = baseR
-                                hatCone.Color = color; hatCone.Transparency = 0.55; hatCone.Visible = true
-                                hatBrim.PointA = Vector2.new(pos.X, pos.Y + h * 0.10)
-                                hatBrim.PointB = brimL; hatBrim.PointC = brimR
-                                hatBrim.Color = color; hatBrim.Transparency = 0.65; hatBrim.Visible = true
-                                hatWire1.From = tipA; hatWire1.To = baseL; hatWire1.Color = color; hatWire1.Visible = true
-                                hatWire2.From = tipA; hatWire2.To = baseR; hatWire2.Color = color; hatWire2.Visible = true
-                                hatWire3.From = baseL; hatWire3.To = baseR; hatWire3.Color = color; hatWire3.Visible = true
-                                hatCone.Transparency = 0
-                            elseif style == "Wireframe" then
-                                hatCone.Visible = false; hatBrim.Visible = false
-                                hatWire1.From = tipA; hatWire1.To = baseL; hatWire1.Color = color; hatWire1.Visible = true
-                                hatWire2.From = tipA; hatWire2.To = baseR; hatWire2.Color = color; hatWire2.Visible = true
-                                hatWire3.From = baseL; hatWire3.To = baseR; hatWire3.Color = color; hatWire3.Visible = true
+                        local tipV, tipOn = Camera:WorldToViewportPoint(tipWorld)
+                        if tipOn and tipV.Z > 0 then
+                            local rimV = {}
+                            local allOn = true
+                            for i = 1, rimSegs do
+                                local vp, on = Camera:WorldToViewportPoint(rimWorld[i])
+                                rimV[i] = vp
+                                if not on or vp.Z <= 0 then allOn = false end
+                            end
+
+                            if allOn then
+                                if style == "Forcefield" then
+                                    ensureHatPool(rimSegs * 3)
+                                    local idx = 1
+                                    for i = 1, rimSegs do
+                                        local j = (i % rimSegs) + 1
+                                        local t = hatPool[idx].tri
+                                        t.PointA = tipV; t.PointB = rimV[i]; t.PointC = rimV[j]
+                                        t.Color = color; t.Transparency = 0.55; t.Visible = true
+                                        idx = idx + 1
+                                    end
+                                    local brimV = {}
+                                    for i = 1, rimSegs do
+                                        brimV[i] = Camera:WorldToViewportPoint(brimWorld[i])
+                                    end
+                                    for i = 1, rimSegs do
+                                        local j = (i % rimSegs) + 1
+                                        local t = hatPool[idx].tri
+                                        t.PointA = brimV[i]; t.PointB = rimV[i]; t.PointC = rimV[j]
+                                        t.Color = color; t.Transparency = 0.35; t.Visible = true
+                                        idx = idx + 1
+                                    end
+                                    for i = 1, rimSegs do
+                                        local j = (i % rimSegs) + 1
+                                        local l1 = hatPool[idx].line; l1.From = tipV; l1.To = rimV[i]; l1.Color = color; l1.Visible = true; idx = idx + 1
+                                        local l2 = hatPool[idx].line; l2.From = rimV[i]; l2.To = rimV[j]; l2.Color = color; l2.Visible = true; idx = idx + 1
+                                    end
+                                    for i = idx, hatPoolN do hatPool[i].tri.Visible = false; hatPool[i].line.Visible = false end
+                                elseif style == "Wireframe" then
+                                    ensureHatPool(rimSegs * 2)
+                                    local idx = 1
+                                    for i = 1, rimSegs do
+                                        local j = (i % rimSegs) + 1
+                                        local l1 = hatPool[idx].line; l1.From = tipV; l1.To = rimV[i]; l1.Color = color; l1.Visible = true; idx = idx + 1
+                                        local l2 = hatPool[idx].line; l2.From = rimV[i]; l2.To = rimV[j]; l2.Color = color; l2.Visible = true; idx = idx + 1
+                                    end
+                                    for i = idx, hatPoolN do hatPool[i].tri.Visible = false; hatPool[i].line.Visible = false end
+                                else
+                                    ensureHatPool(rimSegs * 2)
+                                    local idx = 1
+                                    for i = 1, rimSegs do
+                                        local j = (i % rimSegs) + 1
+                                        local t = hatPool[idx].tri
+                                        t.PointA = tipV; t.PointB = rimV[i]; t.PointC = rimV[j]
+                                        t.Color = color; t.Transparency = 0; t.Visible = true
+                                        idx = idx + 1
+                                    end
+                                    local brimV = {}
+                                    for i = 1, rimSegs do
+                                        brimV[i] = Camera:WorldToViewportPoint(brimWorld[i])
+                                    end
+                                    for i = 1, rimSegs do
+                                        local j = (i % rimSegs) + 1
+                                        local t = hatPool[idx].tri
+                                        t.PointA = brimV[i]; t.PointB = rimV[i]; t.PointC = rimV[j]
+                                        t.Color = color; t.Transparency = 0.15; t.Visible = true
+                                        idx = idx + 1
+                                    end
+                                    for i = idx, hatPoolN do hatPool[i].tri.Visible = false; hatPool[i].line.Visible = false end
+                                end
                             else
-                                hatCone.PointA = tipA; hatCone.PointB = baseL; hatCone.PointC = baseR
-                                hatCone.Color = color; hatCone.Transparency = 0; hatCone.Visible = true
-                                hatBrim.PointA = Vector2.new(pos.X, pos.Y + h * 0.10)
-                                hatBrim.PointB = brimL; hatBrim.PointC = brimR
-                                hatBrim.Color = color; hatBrim.Transparency = 0.15; hatBrim.Visible = true
-                                hatWire1.Visible = false; hatWire2.Visible = false; hatWire3.Visible = false
+                                hideAllHat()
                             end
                         else
-                            hideHat()
+                            hideAllHat()
                         end
                     end
                 else
-                    hideHat()
+                    hideAllHat()
                 end
 
                 -- Chinese ESP + Pink ESP (shared pass)
@@ -2948,24 +3021,22 @@ local function NeverHitDrawEngine()
                     if not shouldShow and not shouldShowPink then removeEsp(plr); continue end
 
                     local objs = getEspObjects(plr)
-                    local headV, onS1 = Camera:WorldToViewportPoint(head.Position)
-                    local rootV, onS2 = Camera:WorldToViewportPoint(root.Position)
-                    if not (onS1 and onS2 and headV.Z > 0) then
+                    local bboxH, bboxW, bboxCX, bboxTopY = getBoundingBox(head, root, Camera)
+                    if not bboxH then
                         for _, o in pairs(objs) do o.Visible = false end
                         continue
                     end
 
-                    local height, width = getBoundingBox(headV, rootV)
                     local espColor = shouldShowPink and (getgenv().PinkESPColor or BABY_PINK) or RED
 
                     -- Box
                     if (shouldShow and getgenv().ESPBox ~= false) or (shouldShowPink and getgenv().PinkESPBox ~= false) then
-                        objs.boxOutline.Position = Vector2.new(rootV.X - width / 2 - 1, headV.Y - 1)
-                        objs.boxOutline.Size = Vector2.new(width + 2, height + 2)
+                        objs.boxOutline.Position = Vector2.new(bboxCX - bboxW / 2 - 1, bboxTopY - 1)
+                        objs.boxOutline.Size = Vector2.new(bboxW + 2, bboxH + 2)
                         objs.boxOutline.Color = Color3.new(0, 0, 0)
                         objs.boxOutline.Visible = true
-                        objs.box.Position = Vector2.new(rootV.X - width / 2, headV.Y)
-                        objs.box.Size = Vector2.new(width, height)
+                        objs.box.Position = Vector2.new(bboxCX - bboxW / 2, bboxTopY)
+                        objs.box.Size = Vector2.new(bboxW, bboxH)
                         objs.box.Color = espColor
                         objs.box.Visible = true
                     else
@@ -2977,9 +3048,9 @@ local function NeverHitDrawEngine()
                     local showHealthBar = (shouldShow and getgenv().ESPHealth ~= false) or (shouldShowPink and getgenv().PinkESPHealth ~= false)
                     if showHealthBar then
                         local pct = math.clamp(hum.Health / hum.MaxHealth, 0, 1)
-                        local hx = rootV.X - width / 2 - 5
-                        local hb = rootV.Y + height
-                        local hh = height * 0.25
+                        local hx = bboxCX - bboxW / 2 - 5
+                        local hb = bboxTopY + bboxH
+                        local hh = bboxH * 0.25
                         objs.healthBarBg.Position = Vector2.new(hx, hb - hh)
                         objs.healthBarBg.Size = Vector2.new(3, hh)
                         objs.healthBarBg.Color = DARK
@@ -2995,7 +3066,7 @@ local function NeverHitDrawEngine()
 
                     -- Tracer (Chinese ESP only)
                     if shouldShow and getgenv().ESPTracer ~= false then
-                        objs.tracer.From = Vector2.new(rootV.X, rootV.Y)
+                        objs.tracer.From = Vector2.new(bboxCX, bboxTopY + bboxH)
                         objs.tracer.To = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y)
                         objs.tracer.Color = WHITE
                         objs.tracer.Visible = true
@@ -3004,14 +3075,14 @@ local function NeverHitDrawEngine()
                     end
 
                     -- Name
-                    objs.name.Position = Vector2.new(rootV.X, headV.Y - 18)
+                    objs.name.Position = Vector2.new(bboxCX, bboxTopY - 18)
                     objs.name.Color = espColor
                     objs.name.Text = plr.DisplayName
                     objs.name.Visible = true
 
                     -- Distance
                     if shouldShow and getgenv().ESPDistance ~= false then
-                        objs.dist.Position = Vector2.new(rootV.X, rootV.Y + height + 4)
+                        objs.dist.Position = Vector2.new(bboxCX, bboxTopY + bboxH + 4)
                         objs.dist.Color = WHITE
                         objs.dist.Text = string.format("%.0fm", dist)
                         objs.dist.Visible = true
