@@ -672,7 +672,7 @@ local function disabledefaultragebot()
 end
 
 ------------------------------------------------------------------------
--- 12. FORCE HIT
+-- 12. FORCE HIT (rewritten — clean nesting, pcall-protected)
 ------------------------------------------------------------------------
 
 task.spawn(function()
@@ -717,62 +717,74 @@ task.spawn(function()
         local ok_old, old = pcall(function() return mainEvent.FireServer end)
         if not ok_old or not old then return end
 
-        fireHook = function(self, ...)
-            local args = {...}
-            if tostring(self) == "MainEvent" and G.RageBotEnabled then
-                if G.RageBotMethod == "Event Hook" then
+        fireHook = newcclosure(function(self, ...)
+            local ok, result = pcall(function(...)
+                if not G.RageBotEnabled then
+                    return old(self, ...)
+                end
+
+                local argCount = select("#", ...)
+                local args = {...}
+                if tostring(self) == "MainEvent" and G.RageBotMethod == "Event Hook" then
                     local ok_action, action = pcall(decryptstring, args[1])
                     if ok_action and (action == "Shoot" or action == "MeleeHit") then
                         local HitPos = G.RageBotHitPos or "Auto"
                         local dmgpart = G.RageBotHitPart or "Head"
-                        local target = GetClosestPlayer()
+                        local origin = typeof(args[6]) == "Vector3" and args[6]
 
-                        if target and target.Character and target.Character:FindFirstChild("Head") then
-                            local aimPos, partName = nil, nil
+                        local aimPos, partName, target = nil, nil, nil
 
-                            local tp = LocalPlayer:FindFirstChild("TargetPos")
-                            local targetPos = tp and tp.Value
-                            local preferAuto = HitPos == "Auto" and typeof(targetPos) == "Vector3" and targetPos.Magnitude > 0.5
+                        local tp = LocalPlayer:FindFirstChild("TargetPos")
+                        local targetPos = tp and tp.Value
+                        local preferAuto = HitPos == "Auto" and typeof(targetPos) == "Vector3" and targetPos.Magnitude > 0.5
 
-                            if preferAuto then
-                                aimPos = targetPos
-                                partName = GetPartNameAtPos(aimPos, typeof(args[6]) == "Vector3" and args[6])
-                            else
+                        if HitPos == "Auto" and preferAuto then
+                            aimPos = targetPos
+                            target = GetClosestPlayer()
+                            partName = GetPartNameAtPos(aimPos, origin)
+                        else
+                            target = GetClosestPlayer()
+                            if target then
                                 local char = target.Character
-                                local part = getTargetPart(char, HitPos == "Auto" and "Head" or HitPos)
-                                if not part then part = char:FindFirstChild("HumanoidRootPart") end
-                                if part then
-                                    aimPos = PredictPosition(part)
-                                    aimPos = resolveDesyncPart(target, aimPos)
-                                    partName = part.Name
+                                if char then
+                                    local part = getTargetPart(char, HitPos == "Auto" and "Head" or HitPos)
+                                    if not part then part = char:FindFirstChild("HumanoidRootPart") end
+                                    if part then
+                                        aimPos = PredictPosition(part)
+                                        aimPos = resolveDesyncPart(target, aimPos)
+                                        partName = part.Name
+                                    end
                                 end
                             end
+                        end
 
+                        if aimPos and target then
+                            if G.HumanizeHitPos then
+                                aimPos = sanitizePos(aimPos + Vector3.new(
+                                    (aaRandom() * 2 - 1) * 0.15,
+                                    (aaRandom() * 2 - 1) * 0.15,
+                                    (aaRandom() * 2 - 1) * 0.15
+                                ))
+                            end
+                            aimPos = sanitizePos(aimPos)
                             if aimPos then
-                                if G.HumanizeHitPos then
-                                    aimPos = sanitizePos(aimPos + Vector3.new(
-                                        (aaRandom() * 2 - 1) * 0.15,
-                                        (aaRandom() * 2 - 1) * 0.15,
-                                        (aaRandom() * 2 - 1) * 0.15
-                                    ))
+                                args[3] = encryptstring(partName or dmgpart)
+                                args[7] = aimPos
+                                if typeof(args[6]) == "Vector3" then
+                                    args[5] = (args[6] - aimPos).Magnitude
                                 end
-                                aimPos = sanitizePos(aimPos)
-                                if aimPos then
-                                    args[3] = encryptstring(partName or dmgpart)
-                                    args[7] = aimPos
-                                    if typeof(args[6]) == "Vector3" then
-                                        args[5] = (args[6] - aimPos).Magnitude
-                                    end
-                                    args[8] = encryptstring("nil")
-                                    args[9] = encryptstring("nil")
+                                args[8] = encryptstring("nil")
+                                args[9] = encryptstring("nil")
                             end
                         end
                     end
                 end
-            end
-        end
-        return old(self, unpack(args))
-    end
+                return old(self, unpack(args, 1, argCount))
+            end, ...)
+
+            if ok then return result end
+            return old(self, ...)
+        end, "ForceHit")
 
         local ok_hook, err_hook = pcall(hookfunction, mainEvent.FireServer, fireHook)
         if not ok_hook then
@@ -966,173 +978,219 @@ local function removePrefix()
 end
 
 ------------------------------------------------------------------------
--- 17. RESOLVER (Divine.lua OLD — exact match to original NeverHit)
+-- 17. RESOLVER V3 (data-only — tracks yaw, exposes resolvedYaw for Force Hit)
+--     Does NOT modify other players' joints (that's what crashed V2).
 ------------------------------------------------------------------------
 
 task.spawn(function()
-    do
-        local cloneref = cloneref or function(obj) return obj end
-        local Workspace = cloneref(game:GetService("Workspace"))
-        local RunService = cloneref(game:GetService("RunService"))
+    local RunService = cloneref(game:GetService("RunService"))
 
-        local HIT_WINDOW = 0.25
-        local STACK_LIMIT = 10
-        local FLUSH_TIME = 2
+    local HIT_WINDOW  = 0.25
+    local STACK_LIMIT = 10
+    local CLASSIFY_MIN = 5
+    local FLUSH_TIME  = 2
 
-        local yawSamples = {}
-        local resolvedYaw = {}
-        local lockedYaw = {}
-        local lastHitTime = 0
-        local lastFlush = os.clock()
-        local missCounter = {}
-        local lastMissed = {}
+    local yawSamples  = {}
+    local resolvedYaw = {}
+    local lockedYaw   = {}
+    local lastHitTime = 0
+    local lastFlush   = os.clock()
+    local missCounter = {}
+    local lastMissed  = {}
 
-        Hooks.feedback = function(...)
-            for _, v in ipairs({...}) do
-                if tostring(v):find("Missed due to desync") then
-                    local myRoot = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-                    if myRoot then
-                        local best, bestDist = nil, math.huge
-                        for _, plr in ipairs(Players:GetPlayers()) do
-                            if plr ~= LocalPlayer and plr.Character then
-                                local hrp = plr.Character:FindFirstChild("HumanoidRootPart")
-                                local hum = plr.Character:FindFirstChildOfClass("Humanoid")
-                                if hrp and hum and hum.Health > 0 then
-                                    local d = (hrp.Position - myRoot.Position).Magnitude
-                                    if d < bestDist then bestDist = d; best = plr end
-                                end
+    Hooks.feedback = function(...)
+        for _, v in ipairs({...}) do
+            local s = tostring(v)
+            if s:lower():find("missed due to") then
+                local myRoot = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+                if myRoot then
+                    local best, bestDist = nil, math.huge
+                    for _, plr in ipairs(Players:GetPlayers()) do
+                        if plr ~= LocalPlayer and plr.Character then
+                            local hrp = plr.Character:FindFirstChild("HumanoidRootPart")
+                            local hum = plr.Character:FindFirstChildOfClass("Humanoid")
+                            if hrp and hum and hum.Health > 0 then
+                                local d = (hrp.Position - myRoot.Position).Magnitude
+                                if d < bestDist then bestDist = d; best = plr end
                             end
                         end
-                        if best then
-                            missCounter[best] = (missCounter[best] or 0) + 1
-                            lockedYaw[best] = nil
-                            resolvedYaw[best] = nil
-                            lastMissed[best] = true
-                        end
+                    end
+                    if best then
+                        missCounter[best] = (missCounter[best] or 0) + 1
+                        lockedYaw[best] = nil
+                        resolvedYaw[best] = nil
+                        lastMissed[best] = true
+                        lastHitTime = os.clock()
                     end
                 end
             end
         end
+    end
 
-        Hooks.resolvedYaw = resolvedYaw
+    Hooks.resolvedYaw = resolvedYaw
 
-        local function norm(a) return math.atan2(math.sin(a), math.cos(a)) end
-        local function diff(a, b) return math.abs(norm(a - b)) end
-        local function lerpAngle(a, b, t) return a + norm(b - a) * t end
+    local function norm(a) return math.atan2(math.sin(a), math.cos(a)) end
+    local function diff(a, b) return math.abs(norm(a - b)) end
+    local function lerpAngle(a, b, t) return a + norm(b - a) * t end
 
-        local function flushthis()
-            table.clear(yawSamples)
-            table.clear(resolvedYaw)
-            table.clear(lockedYaw)
-            lastFlush = os.clock()
+    local function flushthis()
+        table.clear(yawSamples)
+        table.clear(resolvedYaw)
+        table.clear(lockedYaw)
+        lastFlush = os.clock()
+    end
+
+    local function getHRPYaw(hrp)
+        local look = hrp.CFrame.LookVector
+        return math.atan2(look.X, look.Z)
+    end
+
+    local function pushYaw(plr)
+        local hrp = plr.Character and plr.Character:FindFirstChild("HumanoidRootPart")
+        if not hrp then return end
+        local buf = yawSamples[plr]
+        if not buf then
+            buf = { values = {}, head = 1, count = 0 }
+            yawSamples[plr] = buf
         end
+        buf.values[buf.head] = getHRPYaw(hrp)
+        buf.head = (buf.head % STACK_LIMIT) + 1
+        if buf.count < STACK_LIMIT then buf.count += 1 end
+    end
 
-        local function getHRPYaw(hrp)
-            local look = hrp.CFrame.LookVector
-            return math.atan2(look.X, look.Z)
-        end
-
-        local function pushYaw(plr)
-            local hrp = plr.Character and plr.Character:FindFirstChild("HumanoidRootPart")
-            if not hrp then return end
-            yawSamples[plr] = yawSamples[plr] or {}
-            table.insert(yawSamples[plr], getHRPYaw(hrp))
-            if #yawSamples[plr] > STACK_LIMIT then
-                table.remove(yawSamples[plr], 1)
+    local function orderedSamples(buf)
+        local vals, head, count = buf.values, buf.head, buf.count
+        local out = {}
+        if count < STACK_LIMIT then
+            for i = 1, count do out[i] = vals[i] end
+        else
+            local base = head - 1
+            for i = 0, count - 1 do
+                out[i + 1] = vals[(base + i) % STACK_LIMIT + 1]
             end
         end
+        return out
+    end
 
-        local function classifyAA(plr)
-            local pile = yawSamples[plr]
-            if not pile or #pile < STACK_LIMIT then return "LEGIT" end
-            local totalDelta = 0
-            local flips = 0
-            for i = 2, #pile do
-                local d = diff(pile[i], pile[i - 1])
-                totalDelta += d
-                if math.sign(math.sin(pile[i])) ~= math.sign(math.sin(pile[i - 1])) then
-                    flips += 1
+    local function lastSample(buf)
+        if buf.count == 0 then return nil end
+        if buf.count < STACK_LIMIT then return buf.values[buf.count] end
+        return buf.values[((buf.head - 2) % STACK_LIMIT) + 1]
+    end
+
+    local function jitterClusters(pile)
+        local base = pile[1] or 0
+        local sum, n = 0, #pile
+        local unwrapped = {}
+        for i, y in ipairs(pile) do
+            local u = base + norm(y - base)
+            unwrapped[i] = u
+            sum += u
+        end
+        local mean = sum / n
+        local aSum, aN, bSum, bN = 0, 0, 0, 0
+        for _, u in ipairs(unwrapped) do
+            if u >= mean then aSum += u; aN += 1
+            else bSum += u; bN += 1 end
+        end
+        return norm(aN > 0 and aSum / aN or mean), norm(bN > 0 and bSum / bN or mean)
+    end
+
+    local BRUTE_OFFSETS = {
+        0, math.rad(180), math.rad(137), -math.rad(137),
+        math.rad(157), -math.rad(157), math.rad(67), -math.rad(67),
+    }
+
+    local function getClosest()
+        local myRoot = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+        if not myRoot then return nil end
+        local best, bestDist = nil, math.huge
+        for _, plr in ipairs(Players:GetPlayers()) do
+            if plr ~= LocalPlayer and plr.Character then
+                local hrp = plr.Character:FindFirstChild("HumanoidRootPart")
+                local hum = plr.Character:FindFirstChildOfClass("Humanoid")
+                if hrp and hum and hum.Health > 0 then
+                    local dist = (hrp.Position - myRoot.Position).Magnitude
+                    if dist < bestDist then best = plr; bestDist = dist end
                 end
             end
-            local avg = totalDelta / (#pile - 1)
-            if avg < math.rad(4) then return "LEGIT"
-            elseif avg < math.rad(18) and flips < 3 then return "STATIC_AA"
-            else return "JITTER_AA" end
         end
+        return best
+    end
 
-        local function getClosest()
-            local myRoot = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-            if not myRoot then return nil end
-            local best, bestDist = nil, math.huge
-            for _, plr in ipairs(Players:GetPlayers()) do
-                if plr ~= LocalPlayer and plr.Character then
-                    local hrp = plr.Character:FindFirstChild("HumanoidRootPart")
-                    local hum = plr.Character:FindFirstChildOfClass("Humanoid")
-                    if hrp and hum and hum.Health > 0 then
-                        local dist = (hrp.Position - myRoot.Position).Magnitude
-                        if dist < bestDist then best = plr; bestDist = dist end
-                    end
-                end
+    local function classifyAA(plr)
+        local buf = yawSamples[plr]
+        if not buf or buf.count < CLASSIFY_MIN then return "UNKNOWN" end
+        local pile = orderedSamples(buf)
+        local totalDelta, flips = 0, 0
+        for i = 2, #pile do
+            totalDelta += diff(pile[i], pile[i - 1])
+            if math.sign(math.sin(pile[i])) ~= math.sign(math.sin(pile[i - 1])) then
+                flips += 1
             end
-            return best
         end
+        local avg = totalDelta / (#pile - 1)
+        if avg < math.rad(3) then return "LEGIT"
+        elseif avg < math.rad(16) and flips < 3 then return "STATIC_AA"
+        else return "JITTER_AA" end
+    end
 
-        local function resolveYaw(plr)
-            local hrp = plr.Character and plr.Character:FindFirstChild("HumanoidRootPart")
-            if not hrp then return 0 end
-            local realYaw = getHRPYaw(hrp)
-            local mode = classifyAA(plr)
+    local function resolveYaw(plr)
+        local hrp = plr.Character and plr.Character:FindFirstChild("HumanoidRootPart")
+        if not hrp then return 0 end
+        local realYaw = getHRPYaw(hrp)
+        local mode = classifyAA(plr)
 
-            if mode == "LEGIT" then return realYaw end
+        if mode == "LEGIT" or mode == "UNKNOWN" then return realYaw end
 
-            if mode == "STATIC_AA" then
-                if not lockedYaw[plr] and os.clock() - lastHitTime <= HIT_WINDOW then
-                    lockedYaw[plr] = realYaw
-                    lastHitTime = 0
-                end
-                return lockedYaw[plr] or realYaw
-            end
-
-            local side = math.sign(math.sin(realYaw))
+        if mode == "STATIC_AA" then
+            if not lockedYaw[plr] then lockedYaw[plr] = realYaw end
             if lastMissed[plr] then
-                side = -side
+                local step = missCounter[plr] or 0
+                lockedYaw[plr] = norm(realYaw + BRUTE_OFFSETS[(step % #BRUTE_OFFSETS) + 1])
                 lastMissed[plr] = nil
             end
+            return lockedYaw[plr]
+        end
 
-            local biased = norm(realYaw + side * (G.DivineLuaBIASAngle or math.rad(25)))
-
-            if G.DivineLuaLERPEnabled then
-                local last = resolvedYaw[plr] or biased
-                resolvedYaw[plr] = lerpAngle(last, biased, G.DivineLuaLERPSpeed or 0.35)
-                return resolvedYaw[plr]
+        local buf = yawSamples[plr]
+        local latest = (buf and lastSample(buf)) or realYaw
+        local targetYaw = latest
+        if buf and buf.count >= STACK_LIMIT then
+            local pile = orderedSamples(buf)
+            local ca, cb = jitterClusters(pile)
+            local dA = math.abs(norm(latest - ca))
+            local dB = math.abs(norm(latest - cb))
+            local chosen = dA < dB and ca or cb
+            if lastMissed[plr] then
+                chosen = dA < dB and cb or ca
+                lastMissed[plr] = nil
             end
-
-            return biased
+            targetYaw = chosen
         end
-
-        local function applyYaw(plr, yaw)
-            local char = plr.Character
-            if not char then return end
-            local hrp = char:FindFirstChild("HumanoidRootPart")
-            if not hrp then return end
-            local rj = hrp:FindFirstChild("RootJoint")
-            if not rj then return end
-            if not rj:GetAttribute("BaseC0") then rj:SetAttribute("BaseC0", rj.C0) end
-            rj.C0 = rj:GetAttribute("BaseC0") * CFrame.Angles(0, yaw, 0)
+        if G.DivineLuaLERPEnabled then
+            local last = resolvedYaw[plr] or targetYaw
+            resolvedYaw[plr] = lerpAngle(last, targetYaw, G.DivineLuaLERPSpeed or 0.35)
+            return resolvedYaw[plr]
         end
+        return targetYaw
+    end
 
-        RunService.Heartbeat:Connect(function()
+    RunService.Heartbeat:Connect(function()
+        local ok, err = pcall(function()
             if not G.CustomResolverEnabled then return end
             if not G.DivineLuaCorrection then return end
             if os.clock() - lastFlush > FLUSH_TIME then flushthis() end
             local tgt = getClosest()
             if tgt then
                 pushYaw(tgt)
-                local yaw = resolveYaw(tgt)
-                applyYaw(tgt, yaw)
+                resolvedYaw[tgt] = resolveYaw(tgt)
             end
         end)
-    end
+        if not ok then
+            warn("[NeverHit V2] Resolver error: " .. tostring(err))
+        end
+    end)
 end)
 
 ------------------------------------------------------------------------
