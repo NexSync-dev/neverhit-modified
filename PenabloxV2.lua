@@ -45,6 +45,13 @@ end
 local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
 local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
+local TweenService = game:GetService("TweenService")
+
+local ACCENT = Color3.fromRGB(255, 161, 232)
+local BG = Color3.fromRGB(16, 16, 16)
+local BG_LIGHT = Color3.fromRGB(22, 22, 22)
+local TEXT = Color3.fromRGB(200, 200, 200)
+local TEXT_DIM = Color3.fromRGB(120, 120, 120)
 
 local loadingGui = Instance.new("ScreenGui")
 loadingGui.Name = "NeverHitLoading"
@@ -54,34 +61,42 @@ loadingGui.DisplayOrder = 999
 loadingGui.Parent = PlayerGui
 
 local loadingFrame = Instance.new("Frame")
-loadingFrame.Size = UDim2.new(0, 260, 0, 60)
-loadingFrame.Position = UDim2.new(0.5, -130, 0, 12)
-loadingFrame.BackgroundColor3 = Color3.fromRGB(18, 18, 18)
+loadingFrame.Size = UDim2.new(0, 220, 0, 44)
+loadingFrame.Position = UDim2.new(0.5, -110, 0, 10)
+loadingFrame.BackgroundColor3 = BG
 loadingFrame.BorderSizePixel = 0
 loadingFrame.Parent = loadingGui
 
-local loadingCorner = Instance.new("UICorner")
-loadingCorner.CornerRadius = UDim.new(0, 6)
-loadingCorner.Parent = loadingFrame
+local loadingStroke = Instance.new("UIStroke")
+loadingStroke.Color = Color3.fromRGB(40, 40, 40)
+loadingStroke.Thickness = 1
+loadingStroke.Parent = loadingFrame
+
+local loadingAccent = Instance.new("Frame")
+loadingAccent.Size = UDim2.new(0, 2, 1, 0)
+loadingAccent.Position = UDim2.new(0, 0, 0, 0)
+loadingAccent.BackgroundColor3 = ACCENT
+loadingAccent.BorderSizePixel = 0
+loadingAccent.Parent = loadingFrame
 
 local loadingLabel = Instance.new("TextLabel")
-loadingLabel.Size = UDim2.new(1, -20, 0.5, 0)
-loadingLabel.Position = UDim2.new(0, 10, 0, 2)
+loadingLabel.Size = UDim2.new(1, -24, 0.5, 0)
+loadingLabel.Position = UDim2.new(0, 14, 0, 2)
 loadingLabel.BackgroundTransparency = 1
-loadingLabel.Text = "NeverHit V2"
-loadingLabel.TextColor3 = Color3.fromRGB(255, 161, 232)
-loadingLabel.TextSize = 14
+loadingLabel.Text = "NEVERHIT"
+loadingLabel.TextColor3 = TEXT
+loadingLabel.TextSize = 11
 loadingLabel.Font = Enum.Font.Code
 loadingLabel.TextXAlignment = Enum.TextXAlignment.Left
 loadingLabel.Parent = loadingFrame
 
 local statusLabel = Instance.new("TextLabel")
-statusLabel.Size = UDim2.new(1, -20, 0.5, 0)
-statusLabel.Position = UDim2.new(0, 10, 0.5, 0)
+statusLabel.Size = UDim2.new(1, -24, 0.5, 0)
+statusLabel.Position = UDim2.new(0, 14, 0.5, 0)
 statusLabel.BackgroundTransparency = 1
-statusLabel.Text = "Loading..."
-statusLabel.TextColor3 = Color3.fromRGB(140, 140, 140)
-statusLabel.TextSize = 11
+statusLabel.Text = "loading..."
+statusLabel.TextColor3 = TEXT_DIM
+statusLabel.TextSize = 10
 statusLabel.Font = Enum.Font.Code
 statusLabel.TextXAlignment = Enum.TextXAlignment.Left
 statusLabel.Parent = loadingFrame
@@ -101,55 +116,69 @@ local function notify(title, text, duration)
     gui.Parent = PlayerGui
 
     local frame = Instance.new("Frame")
-    frame.Size = UDim2.new(0, 280, 0, 50)
-    frame.BackgroundColor3 = Color3.fromRGB(18, 18, 18)
+    frame.Size = UDim2.new(0, 240, 0, 40)
+    frame.BackgroundColor3 = BG
     frame.BorderSizePixel = 0
     frame.Parent = gui
 
-    local corner = Instance.new("UICorner")
-    corner.CornerRadius = UDim.new(0, 6)
-    corner.Parent = frame
+    local stroke = Instance.new("UIStroke")
+    stroke.Color = Color3.fromRGB(40, 40, 40)
+    stroke.Thickness = 1
+    stroke.Parent = frame
+
+    local accent = Instance.new("Frame")
+    accent.Size = UDim2.new(0, 2, 1, 0)
+    accent.Position = UDim2.new(0, 0, 0, 0)
+    accent.BackgroundColor3 = ACCENT
+    accent.BorderSizePixel = 0
+    accent.Parent = frame
 
     local titleLabel = Instance.new("TextLabel")
-    titleLabel.Size = UDim2.new(1, -16, 0.4, 0)
-    titleLabel.Position = UDim2.new(0, 8, 0, 4)
+    titleLabel.Size = UDim2.new(1, -20, 0, 18)
+    titleLabel.Position = UDim2.new(0, 12, 0, 3)
     titleLabel.BackgroundTransparency = 1
-    titleLabel.Text = title
-    titleLabel.TextColor3 = Color3.fromRGB(255, 161, 232)
-    titleLabel.TextSize = 12
+    titleLabel.Text = title:upper()
+    titleLabel.TextColor3 = TEXT
+    titleLabel.TextSize = 10
     titleLabel.Font = Enum.Font.Code
     titleLabel.TextXAlignment = Enum.TextXAlignment.Left
     titleLabel.Parent = frame
 
     local textLabel = Instance.new("TextLabel")
-    textLabel.Size = UDim2.new(1, -16, 0.5, 0)
-    textLabel.Position = UDim2.new(0, 8, 0.5, 0)
+    textLabel.Size = UDim2.new(1, -20, 0, 16)
+    textLabel.Position = UDim2.new(0, 12, 0, 20)
     textLabel.BackgroundTransparency = 1
     textLabel.Text = text
-    textLabel.TextColor3 = Color3.fromRGB(180, 180, 180)
-    textLabel.TextSize = 11
+    textLabel.TextColor3 = TEXT_DIM
+    textLabel.TextSize = 10
     textLabel.Font = Enum.Font.Code
     textLabel.TextXAlignment = Enum.TextXAlignment.Left
     textLabel.Parent = frame
 
-    local startY = 60 + #notifyQueue * 56
-    frame.Position = UDim2.new(1, 10, 0, startY)
-    gui.Name = "NeverHitNotify"
+    local startY = 60 + #notifyQueue * 46
+    frame.Position = UDim2.new(0, 10, 0, startY)
     table.insert(notifyQueue, gui)
 
     task.spawn(function()
-        local TweenService = game:GetService("TweenService")
-        local tweenIn = TweenService:Create(frame, TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
-            Position = UDim2.new(1, -290, 0, startY)
-        })
-        tweenIn:Play()
-        tweenIn.Completed:Wait()
+        frame.BackgroundTransparency = 1
+        stroke.Transparency = 1
+        accent.BackgroundTransparency = 1
+        titleLabel.TextTransparency = 1
+        textLabel.TextTransparency = 1
+        local fadeIn = TweenService:Create(frame, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {BackgroundTransparency = 0})
+        local fadeInS = TweenService:Create(stroke, TweenInfo.new(0.15), {Transparency = 0})
+        local fadeInA = TweenService:Create(accent, TweenInfo.new(0.15), {BackgroundTransparency = 0})
+        local fadeInT = TweenService:Create(titleLabel, TweenInfo.new(0.15), {TextTransparency = 0})
+        local fadeInD = TweenService:Create(textLabel, TweenInfo.new(0.15), {TextTransparency = 0})
+        fadeIn:Play(); fadeInS:Play(); fadeInA:Play(); fadeInT:Play(); fadeInD:Play()
         task.wait(duration)
-        local tweenOut = TweenService:Create(frame, TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.In), {
-            Position = UDim2.new(1, 10, 0, startY)
-        })
-        tweenOut:Play()
-        tweenOut.Completed:Wait()
+        local fadeOut = TweenService:Create(frame, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {BackgroundTransparency = 1})
+        local fadeOutS = TweenService:Create(stroke, TweenInfo.new(0.2), {Transparency = 1})
+        local fadeOutA = TweenService:Create(accent, TweenInfo.new(0.2), {BackgroundTransparency = 1})
+        local fadeOutT = TweenService:Create(titleLabel, TweenInfo.new(0.2), {TextTransparency = 1})
+        local fadeOutD = TweenService:Create(textLabel, TweenInfo.new(0.2), {TextTransparency = 1})
+        fadeOut:Play(); fadeOutS:Play(); fadeOutA:Play(); fadeOutT:Play(); fadeOutD:Play()
+        task.wait(0.25)
         for i, g in ipairs(notifyQueue) do
             if g == gui then
                 table.remove(notifyQueue, i)
@@ -207,14 +236,14 @@ G.RageBotPrediction = G.RageBotPrediction or false
 G.RageBotAutoPrediction = (G.RageBotAutoPrediction == nil) and true or G.RageBotAutoPrediction
 G.HumanizeHitPos = (G.HumanizeHitPos == nil) and true or G.HumanizeHitPos
 
-G.typeofantiaim = G.typeofantiaim or "Jitter"
+G.typeofantiaim = G.typeofantiaim or "Static"
 G.antiaimjitter = G.antiaimjitter or 157
-G.antiaimdelayness = G.antiaimdelayness or 0.008
+G.antiaimdelayness = G.antiaimdelayness or 0
 G.antiaimrandomness = G.antiaimrandomness or 0
-G.rightantiaim = G.rightantiaim or 143
-G.leftantiaim = G.leftantiaim or -137
-G.BodyYawantiaim = G.BodyYawantiaim or 67
-G.Pitchantiaim = G.Pitchantiaim or -49
+G.rightantiaim = G.rightantiaim or 0
+G.leftantiaim = G.leftantiaim or 0
+G.BodyYawantiaim = G.BodyYawantiaim or 0
+G.Pitchantiaim = G.Pitchantiaim or 0
 G.BaseYawantiaim = G.BaseYawantiaim or 0
 G.AntiAimEnabled = G.AntiAimEnabled or false
 G.BaseYawHookEnabled = G.BaseYawHookEnabled or false
@@ -237,7 +266,7 @@ G.DivineLuaBIASAngle = G.DivineLuaBIASAngle or math.rad(25)
 G.ESPEnabled = G.ESPEnabled or false
 G.ESPBox = (G.ESPBox == nil) and true or G.ESPBox
 G.ESPHealth = (G.ESPHealth == nil) and true or G.ESPHealth
-G.ESPTracer = (G.ESPTracer == nil) and true or G.ESPTracer
+G.ESPTracer = (G.ESPTracer == nil) and false or G.ESPTracer
 G.ESPName = (G.ESPName == nil) and true or G.ESPName
 G.ESPDistance = (G.ESPDistance == nil) and true or G.ESPDistance
 G.ESPMaxDistance = G.ESPMaxDistance or 500
@@ -651,21 +680,6 @@ task.spawn(function()
 
     local fireHook, fireHooked = nil, false
 
-    local function findTargetAtPos(pos)
-        local best, bestDist = nil, math.huge
-        for _, plr in ipairs(Players:GetPlayers()) do
-            if plr ~= LocalPlayer and plr.Character then
-                local hrp = plr.Character:FindFirstChild("HumanoidRootPart")
-                local hum = plr.Character:FindFirstChildOfClass("Humanoid")
-                if hrp and hum and hum.Health > 0 then
-                    local d = (hrp.Position - pos).Magnitude
-                    if d < bestDist then bestDist = d; best = plr end
-                end
-            end
-        end
-        return best
-    end
-
     local function getTargetPart(char, hitPos)
         if hitPos == "Arms" then
             return char:FindFirstChild("Right Arm") or char:FindFirstChild("RightHand")
@@ -711,57 +725,54 @@ task.spawn(function()
                     if ok_action and (action == "Shoot" or action == "MeleeHit") then
                         local HitPos = G.RageBotHitPos or "Auto"
                         local dmgpart = G.RageBotHitPart or "Head"
-                        local origin = typeof(args[6]) == "Vector3" and args[6]
-                        local aimPos, partName, target = nil, nil, nil
+                        local target = GetClosestPlayer()
 
-                        local tp = LocalPlayer:FindFirstChild("TargetPos")
-                        local targetPos = tp and tp.Value
-                        local preferAuto = typeof(targetPos) == "Vector3" and targetPos.Magnitude > 0.5
+                        if target and target.Character and target.Character:FindFirstChild("Head") then
+                            local aimPos, partName = nil, nil
 
-                        if HitPos == "Auto" and preferAuto then
-                            aimPos = targetPos
-                            target = findTargetAtPos(aimPos) or GetClosestPlayer()
-                            partName = GetPartNameAtPos(aimPos, origin)
-                        else
-                            target = GetClosestPlayer()
-                            if target then
+                            local tp = LocalPlayer:FindFirstChild("TargetPos")
+                            local targetPos = tp and tp.Value
+                            local preferAuto = HitPos == "Auto" and typeof(targetPos) == "Vector3" and targetPos.Magnitude > 0.5
+
+                            if preferAuto then
+                                aimPos = targetPos
+                                partName = GetPartNameAtPos(aimPos, typeof(args[6]) == "Vector3" and args[6])
+                            else
                                 local char = target.Character
-                                if char then
-                                    local part = getTargetPart(char, HitPos == "Auto" and "Head" or HitPos)
-                                    if not part then part = char:FindFirstChild("HumanoidRootPart") end
-                                    if part then
-                                        aimPos = PredictPosition(part)
-                                        aimPos = resolveDesyncPart(target, aimPos)
-                                        partName = part.Name
-                                    end
+                                local part = getTargetPart(char, HitPos == "Auto" and "Head" or HitPos)
+                                if not part then part = char:FindFirstChild("HumanoidRootPart") end
+                                if part then
+                                    aimPos = PredictPosition(part)
+                                    aimPos = resolveDesyncPart(target, aimPos)
+                                    partName = part.Name
                                 end
                             end
-                        end
 
-                        if aimPos and target then
-                            if G.HumanizeHitPos then
-                                aimPos = sanitizePos(aimPos + Vector3.new(
-                                    (aaRandom() * 2 - 1) * 0.15,
-                                    (aaRandom() * 2 - 1) * 0.15,
-                                    (aaRandom() * 2 - 1) * 0.15
-                                ))
-                            end
-                            aimPos = sanitizePos(aimPos)
                             if aimPos then
-                                args[3] = encryptstring(partName or dmgpart)
-                                args[7] = aimPos
-                                if typeof(args[6]) == "Vector3" then
-                                    args[5] = (args[6] - aimPos).Magnitude
+                                if G.HumanizeHitPos then
+                                    aimPos = sanitizePos(aimPos + Vector3.new(
+                                        (aaRandom() * 2 - 1) * 0.15,
+                                        (aaRandom() * 2 - 1) * 0.15,
+                                        (aaRandom() * 2 - 1) * 0.15
+                                    ))
                                 end
-                                args[8] = encryptstring("nil")
-                                args[9] = encryptstring("nil")
+                                aimPos = sanitizePos(aimPos)
+                                if aimPos then
+                                    args[3] = encryptstring(partName or dmgpart)
+                                    args[7] = aimPos
+                                    if typeof(args[6]) == "Vector3" then
+                                        args[5] = (args[6] - aimPos).Magnitude
+                                    end
+                                    args[8] = encryptstring("nil")
+                                    args[9] = encryptstring("nil")
                             end
                         end
                     end
                 end
             end
-            return old(self, unpack(args))
         end
+        return old(self, unpack(args))
+    end
 
         local ok_hook, err_hook = pcall(hookfunction, mainEvent.FireServer, fireHook)
         if not ok_hook then
@@ -955,17 +966,17 @@ local function removePrefix()
 end
 
 ------------------------------------------------------------------------
--- 17. RESOLVER (Divine.lua OLD — fixed: live-reads getgenv())
+-- 17. RESOLVER (Divine.lua OLD — exact match to original NeverHit)
 ------------------------------------------------------------------------
 
 task.spawn(function()
     do
         local cloneref = cloneref or function(obj) return obj end
         local Workspace = cloneref(game:GetService("Workspace"))
+        local RunService = cloneref(game:GetService("RunService"))
 
         local HIT_WINDOW = 0.25
         local STACK_LIMIT = 10
-        local CLASSIFY_MIN = 5
         local FLUSH_TIME = 2
 
         local yawSamples = {}
@@ -978,9 +989,7 @@ task.spawn(function()
 
         Hooks.feedback = function(...)
             for _, v in ipairs({...}) do
-                local s = tostring(v)
-                if s:lower():find("missed due to") then
-                    local unlucky = nil
+                if tostring(v):find("Missed due to desync") then
                     local myRoot = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
                     if myRoot then
                         local best, bestDist = nil, math.huge
@@ -994,14 +1003,12 @@ task.spawn(function()
                                 end
                             end
                         end
-                        unlucky = best
-                    end
-                    if unlucky then
-                        missCounter[unlucky] = (missCounter[unlucky] or 0) + 1
-                        lockedYaw[unlucky] = nil
-                        resolvedYaw[unlucky] = nil
-                        lastMissed[unlucky] = true
-                        lastHitTime = os.clock()
+                        if best then
+                            missCounter[best] = (missCounter[best] or 0) + 1
+                            lockedYaw[best] = nil
+                            resolvedYaw[best] = nil
+                            lastMissed[best] = true
+                        end
                     end
                 end
             end
@@ -1028,40 +1035,16 @@ task.spawn(function()
         local function pushYaw(plr)
             local hrp = plr.Character and plr.Character:FindFirstChild("HumanoidRootPart")
             if not hrp then return end
-            local buf = yawSamples[plr]
-            if not buf then
-                buf = { values = {}, head = 1, count = 0 }
-                yawSamples[plr] = buf
+            yawSamples[plr] = yawSamples[plr] or {}
+            table.insert(yawSamples[plr], getHRPYaw(hrp))
+            if #yawSamples[plr] > STACK_LIMIT then
+                table.remove(yawSamples[plr], 1)
             end
-            buf.values[buf.head] = getHRPYaw(hrp)
-            buf.head = (buf.head % STACK_LIMIT) + 1
-            if buf.count < STACK_LIMIT then buf.count += 1 end
-        end
-
-        local function orderedSamples(buf)
-            local vals, head, count = buf.values, buf.head, buf.count
-            local out = {}
-            if count < STACK_LIMIT then
-                for i = 1, count do out[i] = vals[i] end
-            else
-                local base = head - 1
-                for i = 0, count - 1 do
-                    out[i + 1] = vals[(base + i) % STACK_LIMIT + 1]
-                end
-            end
-            return out
-        end
-
-        local function lastSample(buf)
-            if buf.count == 0 then return nil end
-            if buf.count < STACK_LIMIT then return buf.values[buf.count] end
-            return buf.values[((buf.head - 2) % STACK_LIMIT) + 1]
         end
 
         local function classifyAA(plr)
-            local buf = yawSamples[plr]
-            if not buf or buf.count < CLASSIFY_MIN then return "UNKNOWN" end
-            local pile = orderedSamples(buf)
+            local pile = yawSamples[plr]
+            if not pile or #pile < STACK_LIMIT then return "LEGIT" end
             local totalDelta = 0
             local flips = 0
             for i = 2, #pile do
@@ -1072,35 +1055,27 @@ task.spawn(function()
                 end
             end
             local avg = totalDelta / (#pile - 1)
-            if avg < math.rad(3) then return "LEGIT"
-            elseif avg < math.rad(16) and flips < 3 then return "STATIC_AA"
+            if avg < math.rad(4) then return "LEGIT"
+            elseif avg < math.rad(18) and flips < 3 then return "STATIC_AA"
             else return "JITTER_AA" end
         end
 
-        local function jitterClusters(pile)
-            local base = pile[1] or 0
-            local sum, n = 0, #pile
-            local unwrapped = {}
-            for i, y in ipairs(pile) do
-                local u = base + norm(y - base)
-                unwrapped[i] = u
-                sum += u
+        local function getClosest()
+            local myRoot = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+            if not myRoot then return nil end
+            local best, bestDist = nil, math.huge
+            for _, plr in ipairs(Players:GetPlayers()) do
+                if plr ~= LocalPlayer and plr.Character then
+                    local hrp = plr.Character:FindFirstChild("HumanoidRootPart")
+                    local hum = plr.Character:FindFirstChildOfClass("Humanoid")
+                    if hrp and hum and hum.Health > 0 then
+                        local dist = (hrp.Position - myRoot.Position).Magnitude
+                        if dist < bestDist then best = plr; bestDist = dist end
+                    end
+                end
             end
-            local mean = sum / n
-            local aSum, aN, bSum, bN = 0, 0, 0, 0
-            for _, u in ipairs(unwrapped) do
-                if u >= mean then aSum += u; aN += 1
-                else bSum += u; bN += 1 end
-            end
-            local ca = aN > 0 and aSum / aN or mean
-            local cb = bN > 0 and bSum / bN or mean
-            return norm(ca), norm(cb)
+            return best
         end
-
-        local BRUTE_OFFSETS = {
-            0, math.rad(180), math.rad(137), -math.rad(137),
-            math.rad(157), -math.rad(157), math.rad(67), -math.rad(67),
-        }
 
         local function resolveYaw(plr)
             local hrp = plr.Character and plr.Character:FindFirstChild("HumanoidRootPart")
@@ -1108,82 +1083,54 @@ task.spawn(function()
             local realYaw = getHRPYaw(hrp)
             local mode = classifyAA(plr)
 
-            if mode == "LEGIT" or mode == "UNKNOWN" then return realYaw end
+            if mode == "LEGIT" then return realYaw end
 
             if mode == "STATIC_AA" then
-                if not lockedYaw[plr] then lockedYaw[plr] = realYaw end
-                if lastMissed[plr] then
-                    local step = missCounter[plr] or 0
-                    local off = BRUTE_OFFSETS[(step % #BRUTE_OFFSETS) + 1]
-                    lockedYaw[plr] = norm(realYaw + off)
-                    lastMissed[plr] = nil
+                if not lockedYaw[plr] and os.clock() - lastHitTime <= HIT_WINDOW then
+                    lockedYaw[plr] = realYaw
+                    lastHitTime = 0
                 end
-                return lockedYaw[plr]
+                return lockedYaw[plr] or realYaw
             end
 
-            local buf = yawSamples[plr]
-            local latest = (buf and lastSample(buf)) or realYaw
-            local targetYaw = latest
-            if buf and buf.count >= STACK_LIMIT then
-                local pile = orderedSamples(buf)
-                local ca, cb = jitterClusters(pile)
-                local dA = math.abs(norm(latest - ca))
-                local dB = math.abs(norm(latest - cb))
-                local chosen = dA < dB and ca or cb
-                if lastMissed[plr] then chosen = dA < dB and cb or ca; lastMissed[plr] = nil end
-                targetYaw = chosen
+            local side = math.sign(math.sin(realYaw))
+            if lastMissed[plr] then
+                side = -side
+                lastMissed[plr] = nil
             end
+
+            local biased = norm(realYaw + side * (G.DivineLuaBIASAngle or math.rad(25)))
 
             if G.DivineLuaLERPEnabled then
-                local last = resolvedYaw[plr] or targetYaw
-                resolvedYaw[plr] = lerpAngle(last, targetYaw, G.DivineLuaLERPSpeed or 0.35)
+                local last = resolvedYaw[plr] or biased
+                resolvedYaw[plr] = lerpAngle(last, biased, G.DivineLuaLERPSpeed or 0.35)
                 return resolvedYaw[plr]
             end
 
-            return targetYaw
+            return biased
         end
 
-        local lastAppliedYaw = {}
         local function applyYaw(plr, yaw)
             local char = plr.Character
             if not char then return end
             local hrp = char:FindFirstChild("HumanoidRootPart")
             if not hrp then return end
-            local last = lastAppliedYaw[plr]
-            local d = last and math.abs((yaw - last + math.pi) % (2 * math.pi) - math.pi) or math.rad(360)
-            if d < math.rad(0.5) then return end
             local rj = hrp:FindFirstChild("RootJoint")
             if not rj then return end
             if not rj:GetAttribute("BaseC0") then rj:SetAttribute("BaseC0", rj.C0) end
             rj.C0 = rj:GetAttribute("BaseC0") * CFrame.Angles(0, yaw, 0)
-            lastAppliedYaw[plr] = yaw
         end
 
         RunService.Heartbeat:Connect(function()
-            local ok, err = pcall(function()
-                if not G.CustomResolverEnabled then return end
-                if not G.DivineLuaCorrection then return end
-                if os.clock() - lastFlush > FLUSH_TIME then flushthis() end
-                local myRoot = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-                if not myRoot then return end
-                local best, bestDist = nil, math.huge
-                for _, plr in ipairs(Players:GetPlayers()) do
-                    if plr ~= LocalPlayer and plr.Character then
-                        local hrp = plr.Character:FindFirstChild("HumanoidRootPart")
-                        local hum = plr.Character:FindFirstChildOfClass("Humanoid")
-                        if hrp and hum and hum.Health > 0 then
-                            local d = (hrp.Position - myRoot.Position).Magnitude
-                            if d < bestDist then bestDist = d; best = plr end
-                        end
-                    end
-                end
-                if best then
-                    pushYaw(best)
-                    local yaw = resolveYaw(best)
-                    applyYaw(best, yaw)
-                end
-            end)
-            if not ok then warn("[V2 Resolver] " .. tostring(err)) end
+            if not G.CustomResolverEnabled then return end
+            if not G.DivineLuaCorrection then return end
+            if os.clock() - lastFlush > FLUSH_TIME then flushthis() end
+            local tgt = getClosest()
+            if tgt then
+                pushYaw(tgt)
+                local yaw = resolveYaw(tgt)
+                applyYaw(tgt, yaw)
+            end
         end)
     end
 end)
@@ -1321,6 +1268,26 @@ task.spawn(function()
         AAHandler.SendPitchMode(nil, "Static", pitch, 0, 0, 0, 0, 0)
     end
 
+    local lastSent = {}
+    local function sendManualAA()
+        local key = table.concat({
+            tostring(G.typeofantiaim), tostring(G.BaseYawantiaim),
+            tostring(G.leftantiaim), tostring(G.rightantiaim),
+            tostring(G.antiaimjitter), tostring(G.antiaimdelayness),
+            tostring(G.Pitchantiaim), tostring(G.BodyYawantiaim)
+        }, "|")
+        if lastSent.manual == key then return end
+        lastSent.manual = key
+
+        AAHandler.SendYawJitter(
+            nil, G.typeofantiaim or "Jitter", G.BaseYawantiaim or 0,
+            G.leftantiaim or 0, G.rightantiaim or 0,
+            G.antiaimjitter or 0, G.antiaimdelayness or 0, G.antiaimrandomness or 0
+        )
+        AAHandler.SendBodyYaw(nil, G.BodyYawantiaim or 0)
+        AAHandler.SendPitchMode(nil, "Static", G.Pitchantiaim or 0, 0, 0, 0, 0, 0)
+    end
+
     while true do
         local interval = 0.05
         if G.UnhittableEngine then
@@ -1339,22 +1306,14 @@ task.spawn(function()
             local ok, err = pcall(function()
                 if G.TrueRandomAA then SendTrueRandom(); return end
                 if G.UnhittableEngine then SendUnhittable(); return end
-
-                local bodyYaw = G.BodyYawantiaim or 0
-                local pitch = G.Pitchantiaim or 0
-
-                AAHandler.SendYawJitter(
-                    nil, G.typeofantiaim or "Jitter", G.BaseYawantiaim or 0,
-                    G.leftantiaim or 0, G.rightantiaim or 0,
-                    G.antiaimjitter or 0, G.antiaimdelayness or 0, G.antiaimrandomness or 0
-                )
-                AAHandler.SendBodyYaw(nil, bodyYaw)
-                AAHandler.SendPitchMode(nil, "Static", pitch, 0, 0, 0, 0, 0)
+                sendManualAA()
             end)
 
             if not ok then
                 warn("[V2] AA send failed: " .. tostring(err))
             end
+        else
+            lastSent.manual = nil
         end
     end
 end)
@@ -1403,10 +1362,11 @@ local function ApplyNeverHitPreset()
     G.Pitchantiaim = -49
     G.BodyYawantiaim = 67
     G.antiaimjitter = 157
-    G.antiaimdelayness = 0.008
+    G.antiaimdelayness = 0
     G.antiaimrandomness = 0
     G.UnhittableEngine = false
     G.TrueRandomAA = false
+    G.AntiAimEnabled = true
 end
 
 ------------------------------------------------------------------------
@@ -1914,7 +1874,7 @@ local window = library:CreateWindow({})
 
 -- Pages
 local combatPage = window:CreatePage({ Icon = "rbxassetid://8547236654" })
-local aaPage = window:CreatePage({ Icon = "rbxassetid://8547235695" })
+local aaPage = window:CreatePage({ Icon = "rbxassetid://8547256547" })
 local visualsPage = window:CreatePage({ Icon = "rbxassetid://8547254518" })
 local miscPage = window:CreatePage({ Icon = "rbxassetid://8547249956" })
 
@@ -2082,12 +2042,18 @@ aaGeneralSection:CreateToggle({
     Callback = function(v) G.AntiAimEnabled = v end
 })
 
-local aaModes = {"Static", "Offset", "Center", "3-Way", "5-Way"}
+local aaModes = {"Static", "Offset", "Center", "3-Way", "5-Way", "Off"}
 aaGeneralSection:CreateDropdown({
     Name = "Mode (Manual)",
     Options = aaModes,
     State = 1,
-    Callback = function(idx) G.typeofantiaim = aaModes[idx] end
+    Callback = function(idx)
+        local mode = aaModes[idx]
+        G.typeofantiaim = mode
+        if mode == "Off" then
+            G.AntiAimEnabled = false
+        end
+    end
 })
 
 aaGeneralSection:CreateButton({
@@ -2139,25 +2105,25 @@ aaAnglesSection:CreateSlider({
 
 aaAnglesSection:CreateSlider({
     Name = "Yaw Left",
-    State = -137, Min = -180, Max = 180, Step = 1, Suffix = "deg",
+    State = 0, Min = -180, Max = 180, Step = 1, Suffix = "deg",
     Callback = function(v) G.leftantiaim = v end
 })
 
 aaAnglesSection:CreateSlider({
     Name = "Yaw Right",
-    State = 143, Min = -180, Max = 180, Step = 1, Suffix = "deg",
+    State = 0, Min = -180, Max = 180, Step = 1, Suffix = "deg",
     Callback = function(v) G.rightantiaim = v end
 })
 
 aaAnglesSection:CreateSlider({
     Name = "Pitch",
-    State = -49, Min = -90, Max = 90, Step = 1, Suffix = "deg",
+    State = 0, Min = -90, Max = 90, Step = 1, Suffix = "deg",
     Callback = function(v) G.Pitchantiaim = v end
 })
 
 aaAnglesSection:CreateSlider({
     Name = "Body Yaw",
-    State = 67, Min = -80, Max = 80, Step = 1, Suffix = "deg",
+    State = 0, Min = -80, Max = 80, Step = 1, Suffix = "deg",
     Callback = function(v) G.BodyYawantiaim = v end
 })
 
@@ -2181,7 +2147,7 @@ aaExtraSection:CreateSlider({
 
 aaExtraSection:CreateSlider({
     Name = "Delay",
-    State = 8, Min = 0, Max = 11, Step = 1, Suffix = "ms",
+    State = 0, Min = 0, Max = 11, Step = 1, Suffix = "ms",
     Callback = function(v) G.antiaimdelayness = v / 1000 end
 })
 
