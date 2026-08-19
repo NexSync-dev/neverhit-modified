@@ -672,139 +672,75 @@ local function disabledefaultragebot()
 end
 
 ------------------------------------------------------------------------
--- 12. FORCE HIT (rewritten — clean nesting, pcall-protected)
+-- 12. FORCE HIT (skidded from original — hooks RemoteEvent prototype)
 ------------------------------------------------------------------------
 
 task.spawn(function()
     if not globalexists("hookfunction") then return end
 
-    local fireHook, fireHooked = nil, false
-
-    local function getTargetPart(char, hitPos)
-        if hitPos == "Arms" then
-            return char:FindFirstChild("Right Arm") or char:FindFirstChild("RightHand")
-                or char:FindFirstChild("Left Arm") or char:FindFirstChild("LeftHand")
-        elseif hitPos == "Legs" then
-            return char:FindFirstChild("Right Leg") or char:FindFirstChild("RightFoot")
-                or char:FindFirstChild("Left Leg") or char:FindFirstChild("LeftFoot")
-        end
-        return char:FindFirstChild(hitPos)
-    end
-
-    local function resolveDesyncPart(target, aimPos)
-        local resolved = Hooks.resolvedYaw
-        if not resolved then return aimPos end
-        local char = target and target.Character
-        local hrp = char and char:FindFirstChild("HumanoidRootPart")
-        local rYaw = resolved[target]
-        if not hrp or not rYaw then return aimPos end
-        local look = hrp.CFrame.LookVector
-        local realYaw = math.atan2(look.X, look.Z)
-        local d = math.atan2(math.sin(rYaw - realYaw), math.cos(rYaw - realYaw))
-        if math.abs(d) < math.rad(2) then return aimPos end
-        local rel = aimPos - hrp.Position
-        local c, s = math.cos(d), math.sin(d)
-        return hrp.Position + Vector3.new(rel.X * c + rel.Z * s, rel.Y, -rel.X * s + rel.Z * c)
-    end
-
-    local function install()
-        if fireHooked then return end
-
-        local mainEvent = game:GetService("ReplicatedStorage"):FindFirstChild("MainEvent")
-            or game:GetService("ReplicatedStorage"):WaitForChild("MainEvent", 30)
-        if not mainEvent then return end
-
-        local ok_old, old = pcall(function() return mainEvent.FireServer end)
-        if not ok_old or not old then return end
-
-        fireHook = newcclosure(function(self, ...)
-            local ok, result = pcall(function(...)
-                if not G.RageBotEnabled then
-                    return old(self, ...)
-                end
-
-                local argCount = select("#", ...)
-                local args = {...}
-                if tostring(self) == "MainEvent" and G.RageBotMethod == "Event Hook" then
+    pcall(function()
+        local oldFireServer
+        oldFireServer = hookfunction(Instance.new("RemoteEvent").FireServer, function(self, ...)
+            local args = {...}
+            if tostring(self) == "MainEvent" and G.RageBotEnabled then
+                if G.RageBotMethod == "Event Hook" then
                     local ok_action, action = pcall(decryptstring, args[1])
                     if ok_action and (action == "Shoot" or action == "MeleeHit") then
-                        local HitPos = G.RageBotHitPos or "Auto"
-                        local dmgpart = G.RageBotHitPart or "Head"
-                        local origin = typeof(args[6]) == "Vector3" and args[6]
+                        local target = GetClosestPlayer()
 
-                        local aimPos, partName, target = nil, nil, nil
+                        if target and target.Character and target.Character:FindFirstChild("Head") then
+                            local HitPos = G.RageBotHitPos or "Torso"
+                            local dmgpart = G.RageBotHitPart or "Head"
+                            local AutoPart = nil
 
-                        local tp = LocalPlayer:FindFirstChild("TargetPos")
-                        local targetPos = tp and tp.Value
-                        local preferAuto = HitPos == "Auto" and typeof(targetPos) == "Vector3" and targetPos.Magnitude > 0.5
+                            if HitPos == "Auto" then
+                                local tp = LocalPlayer:FindFirstChild("TargetPos")
+                                local targetPos = tp and tp.Value
+                                if typeof(targetPos) == "Vector3" and targetPos ~= Vector3.new(0,0,0) then
+                                    AutoPart = targetPos
+                                else
+                                    AutoPart = "Torso"
+                                end
+                            end
 
-                        if HitPos == "Auto" and preferAuto then
-                            aimPos = targetPos
-                            target = GetClosestPlayer()
-                            partName = GetPartNameAtPos(aimPos, origin)
-                        else
-                            target = GetClosestPlayer()
-                            if target then
-                                local char = target.Character
-                                if char then
-                                    local part = getTargetPart(char, HitPos == "Auto" and "Head" or HitPos)
-                                    if not part then part = char:FindFirstChild("HumanoidRootPart") end
+                            if HitPos and dmgpart then
+                                args[3] = encryptstring(dmgpart)
+
+                                if AutoPart then
+                                    local partName = GetPartNameAtPos(AutoPart)
+                                    local tuffpart = target.Character:FindFirstChild(partName)
+
+                                    if tuffpart and tuffpart.Position ~= Vector3.new(0,0,0) then
+                                        args[7] = tuffpart.Position or AutoPart
+                                        if typeof(args[6]) == "Vector3" and typeof(AutoPart) == "Vector3" then
+                                            args[5] = (args[6] - tuffpart.Position).Magnitude
+                                        end
+                                    else
+                                        args[7] = AutoPart
+                                        if typeof(args[6]) == "Vector3" and typeof(AutoPart) == "Vector3" then
+                                            args[5] = (args[6] - AutoPart).Magnitude
+                                        end
+                                    end
+                                else
+                                    local part = target.Character:FindFirstChild(HitPos)
                                     if part then
-                                        aimPos = PredictPosition(part)
-                                        aimPos = resolveDesyncPart(target, aimPos)
-                                        partName = part.Name
+                                        args[7] = part.Position
+                                        if typeof(args[6]) == "Vector3" then
+                                            args[5] = (args[6] - part.Position).Magnitude
+                                        end
                                     end
                                 end
-                            end
-                        end
 
-                        if aimPos and target then
-                            if G.HumanizeHitPos then
-                                aimPos = sanitizePos(aimPos + Vector3.new(
-                                    (aaRandom() * 2 - 1) * 0.15,
-                                    (aaRandom() * 2 - 1) * 0.15,
-                                    (aaRandom() * 2 - 1) * 0.15
-                                ))
-                            end
-                            aimPos = sanitizePos(aimPos)
-                            if aimPos then
-                                args[3] = encryptstring(partName or dmgpart)
-                                args[7] = aimPos
-                                if typeof(args[6]) == "Vector3" then
-                                    args[5] = (args[6] - aimPos).Magnitude
-                                end
                                 args[8] = encryptstring("nil")
                                 args[9] = encryptstring("nil")
                             end
                         end
                     end
                 end
-                return old(self, unpack(args, 1, argCount))
-            end, ...)
-
-            if ok then return result end
-            return old(self, ...)
-        end, "ForceHit")
-
-        local ok_hook, err_hook = pcall(hookfunction, mainEvent.FireServer, fireHook)
-        if not ok_hook then
-            fireHook = nil
-            warn("[NeverHit V2] Failed to hook MainEvent.FireServer: " .. tostring(err_hook))
-            return
-        end
-        setstackhidden(fireHook, true)
-        fireHooked = true
-    end
-
-    G.__setForceHitHook = function(enabled)
-        if enabled then
-            install()
-        elseif fireHooked and fireHook then
-            fireHooked = false
-            pcall(restorefunction, fireHook)
-            fireHook = nil
-        end
-    end
+            end
+            return oldFireServer(self, unpack(args))
+        end)
+    end)
 end)
 
 -- Auto-ping prediction
@@ -1176,6 +1112,23 @@ task.spawn(function()
         return targetYaw
     end
 
+    local lastAppliedYaw = {}
+
+    local function applyYaw(plr, yaw)
+        local char = plr.Character
+        if not char then return end
+        local hrp = char:FindFirstChild("HumanoidRootPart")
+        if not hrp then return end
+        local last = lastAppliedYaw[plr]
+        local d = last and math.abs((yaw - last + math.pi) % (2 * math.pi) - math.pi) or math.rad(360)
+        if d < math.rad(0.5) then return end
+        local rj = hrp:FindFirstChild("RootJoint")
+        if not rj then return end
+        if not rj:GetAttribute("BaseC0") then rj:SetAttribute("BaseC0", rj.C0) end
+        rj.C0 = rj:GetAttribute("BaseC0") * CFrame.Angles(0, yaw, 0)
+        lastAppliedYaw[plr] = yaw
+    end
+
     RunService.Heartbeat:Connect(function()
         local ok, err = pcall(function()
             if not G.CustomResolverEnabled then return end
@@ -1184,7 +1137,9 @@ task.spawn(function()
             local tgt = getClosest()
             if tgt then
                 pushYaw(tgt)
-                resolvedYaw[tgt] = resolveYaw(tgt)
+                local yaw = resolveYaw(tgt)
+                resolvedYaw[tgt] = yaw
+                applyYaw(tgt, yaw)
             end
         end)
         if not ok then
@@ -1439,7 +1394,6 @@ local function NeverHitDrawEngine()
     local DARK = Color3.fromRGB(40, 40, 40)
 
     local function isTeammate(plr)
-        if LocalPlayer.Team and plr.Team and LocalPlayer.Team == plr.Team then return true end
         return false
     end
 
@@ -1479,24 +1433,18 @@ local function NeverHitDrawEngine()
 
     local function createChams(plr)
         destroyChams(plr)
-        local highlights = {}
         local char = plr.Character
         if not char then return end
         local color = G.ESPChamsColor or BABY_PINK
-        for _, part in ipairs(char:GetDescendants()) do
-            if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
-                local h = Instance.new("Highlight")
-                h.FillColor = color
-                h.OutlineColor = color
-                h.FillTransparency = G.ESPChamsTransparency or 0.6
-                h.OutlineTransparency = 0
-                h.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
-                h.Adornee = part
-                h.Parent = game:GetService("CoreGui")
-                highlights[#highlights + 1] = h
-            end
-        end
-        chamsData[plr] = highlights
+        local h = Instance.new("Highlight")
+        h.FillColor = color
+        h.OutlineColor = color
+        h.FillTransparency = G.ESPChamsTransparency or 0.6
+        h.OutlineTransparency = 0
+        h.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+        h.Adornee = char
+        h.Parent = game:GetService("CoreGui")
+        chamsData[plr] = { h }
     end
 
     local useImmediate = DrawingImmediate and DrawingImmediate.GetPaint
@@ -1637,10 +1585,12 @@ local function NeverHitDrawEngine()
                     for _, plr in ipairs(Players:GetPlayers()) do
                         if plr ~= lp and plr.Character then
                             if not chamsData[plr] then createChams(plr) end
+                            local h = chamsData[plr] and chamsData[plr][1]
+                            if h and h.Adornee ~= plr.Character then createChams(plr) end
                         end
                     end
                     for plr, _ in pairs(chamsData) do
-                        if not Players:FindFirstChild(plr.Name) then destroyChams(plr) end
+                        if not plr.Parent then destroyChams(plr) end
                     end
                 end
             end)
@@ -1889,9 +1839,11 @@ local function NeverHitDrawEngine()
                         if plr ~= lp and plr.Character and not chamsData[plr] then
                             createChams(plr)
                         end
+                        local h = chamsData[plr] and chamsData[plr][1]
+                        if h and h.Adornee ~= plr.Character then createChams(plr) end
                     end
                     for plr, _ in pairs(chamsData) do
-                        if not Players:FindFirstChild(plr.Name) then destroyChams(plr) end
+                        if not plr.Parent then destroyChams(plr) end
                     end
                 end
 
@@ -1948,7 +1900,6 @@ local forceHitToggle = forceHitSection:CreateToggle({
     Callback = function(v)
         G.RageBotEnabled = v
         if v then disabledefaultragebot() end
-        pcall(function() if G.__setForceHitHook then G.__setForceHitHook(v) end end)
         if v then notify("NeverHit V2", "Force Hit enabled", 2) end
     end
 })
