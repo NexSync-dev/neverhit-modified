@@ -38,9 +38,135 @@ if #missing > 12 then
     return
 end
 
+ ------------------------------------------------------------------------
+-- 1b. NOTIFICATION SYSTEM & LOADING SCREEN
 ------------------------------------------------------------------------
+
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
+
+local loadingGui = Instance.new("ScreenGui")
+loadingGui.Name = "NeverHitLoading"
+loadingGui.ResetOnSpawn = false
+loadingGui.IgnoreGuiInset = true
+loadingGui.DisplayOrder = 999
+loadingGui.Parent = PlayerGui
+
+local loadingFrame = Instance.new("Frame")
+loadingFrame.Size = UDim2.new(0, 260, 0, 60)
+loadingFrame.Position = UDim2.new(0.5, -130, 0, 12)
+loadingFrame.BackgroundColor3 = Color3.fromRGB(18, 18, 18)
+loadingFrame.BorderSizePixel = 0
+loadingFrame.Parent = loadingGui
+
+local loadingCorner = Instance.new("UICorner")
+loadingCorner.CornerRadius = UDim.new(0, 6)
+loadingCorner.Parent = loadingFrame
+
+local loadingLabel = Instance.new("TextLabel")
+loadingLabel.Size = UDim2.new(1, -20, 0.5, 0)
+loadingLabel.Position = UDim2.new(0, 10, 0, 2)
+loadingLabel.BackgroundTransparency = 1
+loadingLabel.Text = "NeverHit V2"
+loadingLabel.TextColor3 = Color3.fromRGB(255, 161, 232)
+loadingLabel.TextSize = 14
+loadingLabel.Font = Enum.Font.Code
+loadingLabel.TextXAlignment = Enum.TextXAlignment.Left
+loadingLabel.Parent = loadingFrame
+
+local statusLabel = Instance.new("TextLabel")
+statusLabel.Size = UDim2.new(1, -20, 0.5, 0)
+statusLabel.Position = UDim2.new(0, 10, 0.5, 0)
+statusLabel.BackgroundTransparency = 1
+statusLabel.Text = "Loading..."
+statusLabel.TextColor3 = Color3.fromRGB(140, 140, 140)
+statusLabel.TextSize = 11
+statusLabel.Font = Enum.Font.Code
+statusLabel.TextXAlignment = Enum.TextXAlignment.Left
+statusLabel.Parent = loadingFrame
+
+local function setLoadingStatus(text)
+    statusLabel.Text = text
+end
+
+local notifyQueue = {}
+local function notify(title, text, duration)
+    duration = duration or 4
+    local gui = Instance.new("ScreenGui")
+    gui.Name = "NeverHitNotify"
+    gui.ResetOnSpawn = false
+    gui.IgnoreGuiInset = true
+    gui.DisplayOrder = 998
+    gui.Parent = PlayerGui
+
+    local frame = Instance.new("Frame")
+    frame.Size = UDim2.new(0, 280, 0, 50)
+    frame.BackgroundColor3 = Color3.fromRGB(18, 18, 18)
+    frame.BorderSizePixel = 0
+    frame.Parent = gui
+
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 6)
+    corner.Parent = frame
+
+    local titleLabel = Instance.new("TextLabel")
+    titleLabel.Size = UDim2.new(1, -16, 0.4, 0)
+    titleLabel.Position = UDim2.new(0, 8, 0, 4)
+    titleLabel.BackgroundTransparency = 1
+    titleLabel.Text = title
+    titleLabel.TextColor3 = Color3.fromRGB(255, 161, 232)
+    titleLabel.TextSize = 12
+    titleLabel.Font = Enum.Font.Code
+    titleLabel.TextXAlignment = Enum.TextXAlignment.Left
+    titleLabel.Parent = frame
+
+    local textLabel = Instance.new("TextLabel")
+    textLabel.Size = UDim2.new(1, -16, 0.5, 0)
+    textLabel.Position = UDim2.new(0, 8, 0.5, 0)
+    textLabel.BackgroundTransparency = 1
+    textLabel.Text = text
+    textLabel.TextColor3 = Color3.fromRGB(180, 180, 180)
+    textLabel.TextSize = 11
+    textLabel.Font = Enum.Font.Code
+    textLabel.TextXAlignment = Enum.TextXAlignment.Left
+    textLabel.Parent = frame
+
+    local startY = 60 + #notifyQueue * 56
+    frame.Position = UDim2.new(1, 10, 0, startY)
+    gui.Name = "NeverHitNotify"
+    table.insert(notifyQueue, gui)
+
+    task.spawn(function()
+        local TweenService = game:GetService("TweenService")
+        local tweenIn = TweenService:Create(frame, TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
+            Position = UDim2.new(1, -290, 0, startY)
+        })
+        tweenIn:Play()
+        tweenIn.Completed:Wait()
+        task.wait(duration)
+        local tweenOut = TweenService:Create(frame, TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.In), {
+            Position = UDim2.new(1, 10, 0, startY)
+        })
+        tweenOut:Play()
+        tweenOut.Completed:Wait()
+        for i, g in ipairs(notifyQueue) do
+            if g == gui then
+                table.remove(notifyQueue, i)
+                break
+            end
+        end
+        gui:Destroy()
+    end)
+end
+
+notify("NeverHit V2", "Executor supported! Loading UI...", 3)
+
+ ------------------------------------------------------------------------
 -- 2. LOAD SKEET UI LIB
 ------------------------------------------------------------------------
+
+setLoadingStatus("Loading UI library...")
 
 local library = loadstring(game:HttpGet("https://raw.githubusercontent.com/NexSync-dev/test.guilib/refs/heads/main/skeet.lua"))()
 if not library then
@@ -577,13 +703,10 @@ task.spawn(function()
         local ok_old, old = pcall(function() return mainEvent.FireServer end)
         if not ok_old or not old then return end
 
-        fireHook = newcclosure(function(self, ...)
-            local ok, result = pcall(function(...)
-                if not G.RageBotEnabled then return old(self, ...) end
-
-                local argCount = select("#", ...)
-                local args = {...}
-                if tostring(self) == "MainEvent" and G.RageBotMethod == "Event Hook" then
+        fireHook = function(self, ...)
+            local args = {...}
+            if tostring(self) == "MainEvent" and G.RageBotEnabled then
+                if G.RageBotMethod == "Event Hook" then
                     local ok_action, action = pcall(decryptstring, args[1])
                     if ok_action and (action == "Shoot" or action == "MeleeHit") then
                         local HitPos = G.RageBotHitPos or "Auto"
@@ -636,11 +759,9 @@ task.spawn(function()
                         end
                     end
                 end
-                return old(self, unpack(args, 1, argCount))
-            end, ...)
-            if ok then return result end
-            return old(self, ...)
-        end, "ForceHit")
+            end
+            return old(self, unpack(args))
+        end
 
         local ok_hook, err_hook = pcall(hookfunction, mainEvent.FireServer, fireHook)
         if not ok_hook then
@@ -1783,9 +1904,11 @@ end
 
 task.spawn(NeverHitDrawEngine)
 
-------------------------------------------------------------------------
+ ------------------------------------------------------------------------
 -- 21. UI SETUP (Skeet Framework)
 ------------------------------------------------------------------------
+
+setLoadingStatus("Creating UI...")
 
 local window = library:CreateWindow({})
 
@@ -1808,6 +1931,7 @@ local forceHitToggle = forceHitSection:CreateToggle({
         G.RageBotEnabled = v
         if v then disabledefaultragebot() end
         pcall(function() if G.__setForceHitHook then G.__setForceHitHook(v) end end)
+        if v then notify("NeverHit V2", "Force Hit enabled", 2) end
     end
 })
 
@@ -1941,6 +2065,9 @@ task.spawn(function()
     while not anticheatBypassed and task.wait(0.5) do end
     task.wait(0.2)
     acToggle:Set(anticheatBypassed)
+    if anticheatBypassed then
+        notify("NeverHit V2", "Anticheat bypassed!", 3)
+    end
 end)
 
 ------------------------------------------------------------------------
@@ -2321,5 +2448,16 @@ task.delay(2, function()
         pcall(function() script:Destroy() end)
     end
 end)
+
+-- Remove loading screen
+pcall(function()
+    setLoadingStatus("Done!")
+    task.wait(0.5)
+    loadingGui:Destroy()
+end)
+
+-- Welcome notification
+local displayName = LocalPlayer.DisplayName or LocalPlayer.Name
+notify("NeverHit V2", "Welcome back, " .. displayName .. "!", 4)
 
 print("[NeverHit V2] Loaded successfully!")
