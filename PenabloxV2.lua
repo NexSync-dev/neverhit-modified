@@ -192,8 +192,23 @@ end
 notify("NeverHit V2", "Executor supported! Loading UI...", 3)
 
  ------------------------------------------------------------------------
--- 2. LOAD SKEET UI LIB
-------------------------------------------------------------------------
+-- 2. DOUBLE-LOAD GUARD + GAME CHECK (before library fetch — no wasted exec)
+-----------------------------------------------------------------------
+
+if getgenv().NeverHitIsLoaded then
+    warn("[NeverHit V2] Already loaded!")
+    return
+end
+getgenv().NeverHitIsLoaded = true
+
+if game.PlaceId ~= 122764594952227 then
+    warn("[NeverHit V2] Wrong game! This script is for Penablox HVH only.")
+    return
+end
+
+ ------------------------------------------------------------------------
+-- 3. LOAD SKEET UI LIB
+-----------------------------------------------------------------------
 
 setLoadingStatus("Loading UI library...")
 
@@ -203,28 +218,9 @@ if not library then
     return
 end
 
-------------------------------------------------------------------------
--- 3. DOUBLE-LOAD GUARD
-------------------------------------------------------------------------
-
-if getgenv().NeverHitIsLoaded then
-    warn("[NeverHit V2] Already loaded!")
-    return
-end
-getgenv().NeverHitIsLoaded = true
-
-------------------------------------------------------------------------
--- 4. GAME CHECK
-------------------------------------------------------------------------
-
-if game.PlaceId ~= 122764594952227 then
-    warn("[NeverHit V2] Wrong game! This script is for Penablox HVH only.")
-    return
-end
-
-------------------------------------------------------------------------
--- 5. GLOBALS (individual nil guards — no config corruption)
-------------------------------------------------------------------------
+ ------------------------------------------------------------------------
+-- 4. GLOBALS (individual nil guards — no config corruption)
+-----------------------------------------------------------------------
 
 local G = getgenv()
 
@@ -402,11 +398,10 @@ end
 local cipherCache = { key = false, enc = nil, decPat = nil, decLookup = nil }
 
 local function getCipher()
-    local cfg = pcall(function()
+    local ok, imgLabel = pcall(function()
         return game:GetService("TextChatService").BubbleChatConfiguration:FindFirstChild("ImageLabel")
     end)
-    local imgLabel = cfg
-    if not imgLabel then return nil end
+    if not ok or not imgLabel then return nil end
     local key = imgLabel:GetAttribute("SuperSecretKey")
     if type(key) ~= "string" or key == "" then return nil end
     if cipherCache.key == key then return cipherCache.enc end
@@ -683,7 +678,7 @@ task.spawn(function()
         oldFireServer = hookfunction(Instance.new("RemoteEvent").FireServer, function(self, ...)
             local args = {...}
             if tostring(self) == "MainEvent" and G.RageBotEnabled then
-                if G.RageBotMethod == "Event Hook" then
+                pcall(function()
                     local ok_action, action = pcall(decryptstring, args[1])
                     if ok_action and (action == "Shoot" or action == "MeleeHit") then
                         local target = GetClosestPlayer()
@@ -736,7 +731,7 @@ task.spawn(function()
                             end
                         end
                     end
-                end
+                end)
             end
             return oldFireServer(self, unpack(args))
         end)
@@ -1112,23 +1107,6 @@ task.spawn(function()
         return targetYaw
     end
 
-    local lastAppliedYaw = {}
-
-    local function applyYaw(plr, yaw)
-        local char = plr.Character
-        if not char then return end
-        local hrp = char:FindFirstChild("HumanoidRootPart")
-        if not hrp then return end
-        local last = lastAppliedYaw[plr]
-        local d = last and math.abs((yaw - last + math.pi) % (2 * math.pi) - math.pi) or math.rad(360)
-        if d < math.rad(0.5) then return end
-        local rj = hrp:FindFirstChild("RootJoint")
-        if not rj then return end
-        if not rj:GetAttribute("BaseC0") then rj:SetAttribute("BaseC0", rj.C0) end
-        rj.C0 = rj:GetAttribute("BaseC0") * CFrame.Angles(0, yaw, 0)
-        lastAppliedYaw[plr] = yaw
-    end
-
     RunService.Heartbeat:Connect(function()
         local ok, err = pcall(function()
             if not G.CustomResolverEnabled then return end
@@ -1137,9 +1115,7 @@ task.spawn(function()
             local tgt = getClosest()
             if tgt then
                 pushYaw(tgt)
-                local yaw = resolveYaw(tgt)
-                resolvedYaw[tgt] = yaw
-                applyYaw(tgt, yaw)
+                resolvedYaw[tgt] = resolveYaw(tgt)
             end
         end)
         if not ok then
@@ -2222,7 +2198,7 @@ espSection:CreateToggle({
 
 espSection:CreateToggle({
     Name = "Tracers",
-    State = true,
+    State = false,
     Callback = function(v) G.ESPTracer = v end
 })
 
