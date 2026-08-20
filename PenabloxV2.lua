@@ -112,7 +112,7 @@ local function notify(title, text, duration)
     gui.Name = "NeverHitNotify"
     gui.ResetOnSpawn = false
     gui.IgnoreGuiInset = true
-    gui.DisplayOrder = 998
+    gui.DisplayOrder = 10001
     gui.Parent = PlayerGui
 
     local frame = Instance.new("Frame")
@@ -190,6 +190,13 @@ local function notify(title, text, duration)
 end
 
 notify("NeverHit V2", "Executor supported! Loading UI...", 3)
+
+-- Safety: auto-destroy loading screen after 15s if script errors before cleanup
+task.delay(15, function()
+    if loadingGui and loadingGui.Parent then
+        pcall(function() loadingGui:Destroy() end)
+    end
+end)
 
  ------------------------------------------------------------------------
 -- 2. DOUBLE-LOAD GUARD + GAME CHECK (before library fetch — no wasted exec)
@@ -296,6 +303,7 @@ G.ChinaHatColor = G.ChinaHatColor or Color3.fromRGB(255, 161, 232)
 G.ChinaHatStyle = G.ChinaHatStyle or "Solid"
 G.ChinaHatSegments = G.ChinaHatSegments or 8
 G.ChinaHatRadius = G.ChinaHatRadius or 55
+G.ChinaHatFollowTop = G.ChinaHatFollowTop or false
 
 G.RemoveVelocity = G.RemoveVelocity or false
 G.RemoveMathRandom = G.RemoveMathRandom or false
@@ -1067,25 +1075,128 @@ local function removePrefix()
 end
 
 ------------------------------------------------------------------------
--- 17. RESOLVER V3 (data-only — tracks yaw, exposes resolvedYaw for Force Hit)
---     Does NOT modify other players' joints (that's what crashed V2).
+-- 17. RESOLVER V4 — velocity-correlated, multi-signal, data-only
+--     Tracks yaw, velocity, body/head angles, exposes resolvedYaw
+--     for Force Hit desync correction. Does NOT write to joints.
 ------------------------------------------------------------------------
 
 task.spawn(function()
     local RunService = cloneref(game:GetService("RunService"))
 
-    local HIT_WINDOW  = 0.25
-    local STACK_LIMIT = 10
-    local CLASSIFY_MIN = 5
-    local FLUSH_TIME  = 2
+    local STACK        = 16
+    local CLASSIFY_MIN = 6
+    local FLUSH_TIME   = 3
+    local VEL_SAMPLES  = 8
 
-    local yawSamples  = {}
-    local resolvedYaw = {}
-    local lockedYaw   = {}
-    local lastHitTime = 0
-    local lastFlush   = os.clock()
-    local missCounter = {}
-    local lastMissed  = {}
+    local yawBuf       = {}
+    local velBuf       = {}
+    local velDirBuf    = {}
+    local resolvedYaw  = {}
+    local lockedYaw    = {}
+    local missCounter  = {}
+    local lastMissed   = {}
+    local lastFlush    = os.clock()
+    local confidence   = {}
+    local modeCache    = {}
+
+    Hooks.resolvedYaw = resolvedYaw
+
+    local function norm(a)  return math.atan2(math.sin(a), math.cos(a)) end
+    local function diff(a, b) return math.abs(norm(a - b)) end
+    local function lerpAngle(a, b, t) return a + norm(b - a) * t end
+
+    local BRUTE_OFFSETS = {
+        0, math.pi, math.rad(137), -math.rad(137),
+        math.rad(157), -math.rad(157), math.rad(67), -math.rad(67),
+        math.rad(90), -math.rad(90), math.rad(45), -math.rad(45),
+    }
+
+    local function flushAll()
+        for k in pairs(yawBuf)     do yawBuf[k] = nil end
+        for k in pairs(velBuf)     do velBuf[k] = nil end
+        for k in pairs(velDirBuf)  do velDirBuf[k] = nil end
+        for k in pairs(resolvedYaw) do resolvedYaw[k] = nil end
+        for k in pairs(lockedYaw)  do lockedYaw[k] = nil end
+        for k in pairs(confidence) do confidence[k] = nil end
+        for k in pairs(modeCache)  do modeCache[k] = nil end
+        lastFlush = os.clock()
+    end
+
+    local function getHRPYaw(hrp)
+        local look = hrp.CFrame.LookVector
+        return math.atan2(look.X, look.Z)
+    end
+
+    local function getHeadYaw(head)
+        local look = head.CFrame.LookVector
+        return math.atan2(look.X, look.Z)
+    end
+
+    local function getVelYaw(hrp)
+        local vel = hrp.AssemblyLinearVelocity
+        if vel.Magnitude < 0.5 then return nil end
+        local flat = Vector3.new(vel.X, 0, vel.Z)
+        return math.atan2(flat.X, flat.Z)
+    end
+
+    local function pushRing(buf, val)
+        buf.values[buf.head] = val
+        buf.head = (buf.head % STACK) + 1
+        if buf.count < STACK then buf.count += 1 end
+    end
+
+    local function getOrdered(buf)
+        local v, h, n = buf.values, buf.head, buf.count
+        local out = {}
+        if n < STACK then
+            for i = 1, n do out[i] = v[i] end
+        else
+            local base = h - 1
+            for i = 0, n - 1 do out[i + 1] = v[(base + i) % STACK + 1] end
+        end
+        return out
+    end
+
+    local function getLatest(buf)
+        if buf.count == 0 then return nil end
+        if buf.count < STACK then return buf.values[buf.count] end
+        return buf.values[((buf.head - 2) % STACK) + 1]
+    end
+
+    local function ensureBuf(tbl, plr)
+        if not tbl[plr] then
+            tbl[plr] = { values = {}, head = 1, count = 0 }
+        end
+        return tbl[plr]
+    end
+
+    local function getClosest()
+        local myRoot = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+        if not myRoot then return nil end
+        local best, bestDist = nil, math.huge
+        for _, plr in ipairs(Players:GetPlayers()) do
+            if plr ~= LocalPlayer and plr.Character then
+                local hrp = plr.Character:FindFirstChild("HumanoidRootPart")
+                local hum = plr.Character:FindFirstChildOfClass("Humanoid")
+                if hrp and hum and hum.Health > 0 then
+                    local d = (hrp.Position - myRoot.Position).Magnitude
+                    if d < bestDist then best = plr; bestDist = d end
+                end
+            end
+        end
+        return best
+    end
+
+    local function pushSample(plr)
+        local char = plr.Character
+        local hrp = char and char:FindFirstChild("HumanoidRootPart")
+        if not hrp then return end
+        pushRing(ensureBuf(yawBuf, plr), getHRPYaw(hrp))
+        local vy = getVelYaw(hrp)
+        if vy then pushRing(ensureBuf(velDirBuf, plr), vy) end
+        local vel = hrp.AssemblyLinearVelocity
+        pushRing(ensureBuf(velBuf, plr), vel.Magnitude)
+    end
 
     Hooks.feedback = function(...)
         for _, v in ipairs({...}) do
@@ -1109,126 +1220,109 @@ task.spawn(function()
                         lockedYaw[best] = nil
                         resolvedYaw[best] = nil
                         lastMissed[best] = true
-                        lastHitTime = os.clock()
+                        confidence[best] = math.max((confidence[best] or 1) - 0.3, 0)
                     end
                 end
             end
         end
     end
 
-    Hooks.resolvedYaw = resolvedYaw
-
-    local function norm(a) return math.atan2(math.sin(a), math.cos(a)) end
-    local function diff(a, b) return math.abs(norm(a - b)) end
-    local function lerpAngle(a, b, t) return a + norm(b - a) * t end
-
-    local function flushthis()
-        table.clear(yawSamples)
-        table.clear(resolvedYaw)
-        table.clear(lockedYaw)
-        lastFlush = os.clock()
-    end
-
-    local function getHRPYaw(hrp)
-        local look = hrp.CFrame.LookVector
-        return math.atan2(look.X, look.Z)
-    end
-
-    local function pushYaw(plr)
-        local hrp = plr.Character and plr.Character:FindFirstChild("HumanoidRootPart")
-        if not hrp then return end
-        local buf = yawSamples[plr]
-        if not buf then
-            buf = { values = {}, head = 1, count = 0 }
-            yawSamples[plr] = buf
-        end
-        buf.values[buf.head] = getHRPYaw(hrp)
-        buf.head = (buf.head % STACK_LIMIT) + 1
-        if buf.count < STACK_LIMIT then buf.count += 1 end
-    end
-
-    local function orderedSamples(buf)
-        local vals, head, count = buf.values, buf.head, buf.count
-        local out = {}
-        if count < STACK_LIMIT then
-            for i = 1, count do out[i] = vals[i] end
-        else
-            local base = head - 1
-            for i = 0, count - 1 do
-                out[i + 1] = vals[(base + i) % STACK_LIMIT + 1]
-            end
-        end
-        return out
-    end
-
-    local function lastSample(buf)
-        if buf.count == 0 then return nil end
-        if buf.count < STACK_LIMIT then return buf.values[buf.count] end
-        return buf.values[((buf.head - 2) % STACK_LIMIT) + 1]
-    end
-
-    local function jitterClusters(pile)
-        local base = pile[1] or 0
-        local sum, n = 0, #pile
-        local unwrapped = {}
-        for i, y in ipairs(pile) do
-            local u = base + norm(y - base)
-            unwrapped[i] = u
-            sum += u
-        end
-        local mean = sum / n
-        local aSum, aN, bSum, bN = 0, 0, 0, 0
-        for _, u in ipairs(unwrapped) do
-            if u >= mean then aSum += u; aN += 1
-            else bSum += u; bN += 1 end
-        end
-        return norm(aN > 0 and aSum / aN or mean), norm(bN > 0 and bSum / bN or mean)
-    end
-
-    local BRUTE_OFFSETS = {
-        0, math.rad(180), math.rad(137), -math.rad(137),
-        math.rad(157), -math.rad(157), math.rad(67), -math.rad(67),
-    }
-
-    local function getClosest()
-        local myRoot = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-        if not myRoot then return nil end
-        local best, bestDist = nil, math.huge
-        for _, plr in ipairs(Players:GetPlayers()) do
-            if plr ~= LocalPlayer and plr.Character then
-                local hrp = plr.Character:FindFirstChild("HumanoidRootPart")
-                local hum = plr.Character:FindFirstChildOfClass("Humanoid")
-                if hrp and hum and hum.Health > 0 then
-                    local dist = (hrp.Position - myRoot.Position).Magnitude
-                    if dist < bestDist then best = plr; bestDist = dist end
-                end
-            end
-        end
-        return best
-    end
-
     local function classifyAA(plr)
-        local buf = yawSamples[plr]
+        local buf = yawBuf[plr]
         if not buf or buf.count < CLASSIFY_MIN then return "UNKNOWN" end
-        local pile = orderedSamples(buf)
-        local totalDelta, flips = 0, 0
+        local pile = getOrdered(buf)
+        local totalDelta, flips, maxDelta = 0, 0, 0
         for i = 2, #pile do
-            totalDelta += diff(pile[i], pile[i - 1])
+            local d = diff(pile[i], pile[i - 1])
+            totalDelta += d
+            if d > maxDelta then maxDelta = d end
             if math.sign(math.sin(pile[i])) ~= math.sign(math.sin(pile[i - 1])) then
                 flips += 1
             end
         end
         local avg = totalDelta / (#pile - 1)
-        if avg < math.rad(3) then return "LEGIT"
-        elseif avg < math.rad(16) and flips < 3 then return "STATIC_AA"
-        else return "JITTER_AA" end
+
+        local vbuf = velBuf[plr]
+        local avgSpeed = 0
+        if vbuf and vbuf.count > 0 then
+            local vp = getOrdered(vbuf)
+            local sum = 0
+            for _, s in ipairs(vp) do sum += s end
+            avgSpeed = sum / #vp
+        end
+
+        local headYaw, hrpYaw = nil, nil
+        local char = plr.Character
+        if char then
+            local head = char:FindFirstChild("Head")
+            local hrp = char:FindFirstChild("HumanoidRootPart")
+            if head and hrp then
+                headYaw = getHeadYaw(head)
+                hrpYaw = getHRPYaw(hrp)
+            end
+        end
+
+        if avg < math.rad(3) and flips < 2 then
+            if headYaw and hrpYaw and diff(headYaw, hrpYaw) > math.rad(20) then
+                return "LBY_BREAK"
+            end
+            return "LEGIT"
+        end
+
+        if avgSpeed > 8 then
+            local vdirBuf = velDirBuf[plr]
+            if vdirBuf and vdirBuf.count >= 3 then
+                local vpile = getOrdered(vdirBuf)
+                local vDelta = 0
+                for i = 2, #vpile do vDelta += diff(vpile[i], vpile[i - 1]) end
+                local vAvg = vDelta / math.max(#vpile - 1, 1)
+                if vAvg < math.rad(5) and avg > math.rad(10) then
+                    return "VELOCITY_DESYNC"
+                end
+            end
+        end
+
+        if avg < math.rad(16) and flips < 3 then return "STATIC_AA" end
+        if flips >= math.floor(#pile * 0.35) then return "FLIP_AA" end
+        return "JITTER_AA"
     end
 
-    local function getBruteOffsets()
-        if G.CustomBruteOffsets and type(G.CustomBruteOffsets) == "table" and #G.CustomBruteOffsets > 0 then
-            return G.CustomBruteOffsets
+    local function findClusters(pile)
+        if #pile < 2 then return pile[1] or 0, pile[1] or 0 end
+        local base = pile[1]
+        local unwrapped = {}
+        for i, y in ipairs(pile) do unwrapped[i] = base + norm(y - base) end
+        table.sort(unwrapped)
+
+        local bestSplit, bestScore = 1, math.huge
+        for i = 2, #unwrapped - 1 do
+            local leftSum, rightSum, leftN, rightN = 0, 0, 0, 0
+            for j = 1, i do leftSum += unwrapped[j]; leftN += 1 end
+            for j = i + 1, #unwrapped do rightSum += unwrapped[j]; rightN += 1 end
+            local leftMean = leftSum / leftN
+            local rightMean = rightSum / rightN
+            local score = 0
+            for j = 1, i do score += (unwrapped[j] - leftMean) ^ 2 end
+            for j = i + 1, #unwrapped do score += (unwrapped[j] - rightMean) ^ 2 end
+            if score < bestScore then bestScore = score; bestSplit = i end
         end
-        return BRUTE_OFFSETS
+
+        local aSum, aN, bSum, bN = 0, 0, 0, 0
+        for i = 1, bestSplit do aSum += unwrapped[i]; aN += 1 end
+        for i = bestSplit + 1, #unwrapped do bSum += unwrapped[i]; bN += 1 end
+        return norm(aN > 0 and aSum / aN or unwrapped[1]),
+               norm(bN > 0 and bSum / bN or unwrapped[#unwrapped])
+    end
+
+    local function predictFlipPhase(pile)
+        if #pile < 4 then return 0 end
+        local transitions = 0
+        for i = 2, #pile do
+            if math.sign(math.sin(pile[i])) ~= math.sign(math.sin(pile[i - 1])) then
+                transitions += 1
+            end
+        end
+        return transitions / (#pile - 1)
     end
 
     local function resolveYaw(plr)
@@ -1236,66 +1330,104 @@ task.spawn(function()
         if not hrp then return 0 end
         local realYaw = getHRPYaw(hrp)
         local mode = classifyAA(plr)
+        modeCache[plr] = mode
 
-        if mode == "LEGIT" or mode == "UNKNOWN" then return realYaw end
-
-        if G.ResolverModePerEnemy then
-            if mode == "STATIC_AA" then
-                if not lockedYaw[plr] then lockedYaw[plr] = realYaw end
-                if lastMissed[plr] then
-                    local offsets = getBruteOffsets()
-                    local step = missCounter[plr] or 0
-                    lockedYaw[plr] = norm(realYaw + offsets[(step % #offsets) + 1])
-                    lastMissed[plr] = nil
-                end
-                return lockedYaw[plr]
-            end
+        if mode == "LEGIT" or mode == "UNKNOWN" then
+            confidence[plr] = 1
+            return realYaw
         end
+
+        local offsets = G.CustomBruteOffsets and type(G.CustomBruteOffsets) == "table" and #G.CustomBruteOffsets > 0
+            and G.CustomBruteOffsets or BRUTE_OFFSETS
 
         if mode == "STATIC_AA" then
             if not lockedYaw[plr] then lockedYaw[plr] = realYaw end
             if lastMissed[plr] then
-                local offsets = getBruteOffsets()
                 local step = missCounter[plr] or 0
                 lockedYaw[plr] = norm(realYaw + offsets[(step % #offsets) + 1])
                 lastMissed[plr] = nil
+                confidence[plr] = math.max((confidence[plr] or 0.5) - 0.15, 0.1)
             end
             return lockedYaw[plr]
         end
 
-        local buf = yawSamples[plr]
-        local latest = (buf and lastSample(buf)) or realYaw
-        local targetYaw = latest
-        if buf and buf.count >= STACK_LIMIT then
-            local pile = orderedSamples(buf)
-            local ca, cb = jitterClusters(pile)
-            local dA = math.abs(norm(latest - ca))
-            local dB = math.abs(norm(latest - cb))
-            local chosen = dA < dB and ca or cb
-            if lastMissed[plr] then
-                chosen = dA < dB and cb or ca
-                lastMissed[plr] = nil
+        if mode == "LBY_BREAK" then
+            local headYaw = getHeadYaw(plr.Character:FindFirstChild("Head"))
+            if headYaw then
+                if lastMissed[plr] then
+                    headYaw = norm(headYaw + math.pi)
+                    lastMissed[plr] = nil
+                end
+                return headYaw
             end
-            local correction = G.DivineLuaBIASAngle or 0
-            chosen = norm(chosen + correction)
-            targetYaw = chosen
+            return realYaw
         end
-        if G.DivineLuaLERPEnabled then
-            local last = resolvedYaw[plr] or targetYaw
-            resolvedYaw[plr] = lerpAngle(last, targetYaw, G.DivineLuaLERPSpeed or 0.35)
-            return resolvedYaw[plr]
+
+        if mode == "VELOCITY_DESYNC" then
+            local vdirBuf = velDirBuf[plr]
+            if vdirBuf and vdirBuf.count > 0 then
+                local velYaw = getLatest(vdirBuf)
+                if velYaw then
+                    if lastMissed[plr] then
+                        velYaw = norm(velYaw + math.pi)
+                        lastMissed[plr] = nil
+                    end
+                    return velYaw
+                end
+            end
+            return realYaw
         end
-        return targetYaw
+
+        if mode == "FLIP_AA" or mode == "JITTER_AA" then
+            local buf = yawBuf[plr]
+            if buf and buf.count >= CLASSIFY_MIN then
+                local pile = getOrdered(buf)
+                local ca, cb = findClusters(pile)
+                local latest = getLatest(buf) or realYaw
+                local dA = diff(latest, ca)
+                local dB = diff(latest, cb)
+                local chosen = dA < dB and ca or cb
+
+                if lastMissed[plr] then
+                    chosen = dA < dB and cb or ca
+                    lastMissed[plr] = nil
+                end
+
+                local flipRate = predictFlipPhase(pile)
+                if flipRate > 0.4 and mode == "FLIP_AA" then
+                    local hrpYaw = getHRPYaw(hrp)
+                    local distA = diff(hrpYaw, ca)
+                    local distB = diff(hrpYaw, cb)
+                    if distA > distB then
+                        chosen = ca
+                    else
+                        chosen = cb
+                    end
+                end
+
+                local correction = G.DivineLuaBIASAngle or 0
+                chosen = norm(chosen + correction)
+                confidence[plr] = math.clamp(0.5 + flipRate * 0.5, 0.3, 1)
+
+                if G.DivineLuaLERPEnabled then
+                    local last = resolvedYaw[plr] or chosen
+                    return lerpAngle(last, chosen, G.DivineLuaLERPSpeed or 0.35)
+                end
+                return chosen
+            end
+        end
+
+        return realYaw
     end
 
     RunService.Heartbeat:Connect(function()
         local ok, err = pcall(function()
             if not G.CustomResolverEnabled then return end
             if not G.DivineLuaCorrection then return end
-            if os.clock() - lastFlush > FLUSH_TIME then flushthis() end
+            if os.clock() - lastFlush > FLUSH_TIME then flushAll() end
             local tgt = getClosest()
             if tgt then
-                pushYaw(tgt)
+                pushSample(tgt)
                 resolvedYaw[tgt] = resolveYaw(tgt)
             end
         end)
@@ -1815,7 +1947,7 @@ local function NeverHitDrawEngine()
                         local hatWorldR = hatWorldH * ((G.ChinaHatRadius or 55) / 100)
                         local rimSegs = G.ChinaHatSegments or 8
 
-                        local headPos = head.Position
+                        local headPos = G.ChinaHatFollowTop and (head.Position + Vector3.new(0, head.Size.Y / 2, 0)) or head.Position
                         local tipWorld = headPos + Vector3.new(0, hatWorldH, 0)
                         local rimWorld, brimWorld = {}, {}
                         for i = 1, rimSegs do
@@ -2108,6 +2240,16 @@ local function NeverHitDrawEngine()
             end
         end
 
+        -- FOV Circle Drawing object (fallback)
+        local fovCircle = Drawing.new("Circle")
+        fovCircle.Visible = false
+        fovCircle.Thickness = 1
+        fovCircle.NumSides = 64
+        fovCircle.Radius = 200
+        fovCircle.Filled = false
+        fovCircle.ZIndex = 97
+        fovCircle.Color = WHITE
+
         RunService.RenderStepped:Connect(function()
             pcall(function()
                 local lp = Players.LocalPlayer
@@ -2123,7 +2265,7 @@ local function NeverHitDrawEngine()
                         local hatWorldH = (G.ChinaHatSize or 40) / 60
                         local hatWorldR = hatWorldH * ((G.ChinaHatRadius or 55) / 100)
                         local rimSegs = G.ChinaHatSegments or 8
-                        local headPos = head.Position
+                        local headPos = G.ChinaHatFollowTop and (head.Position + Vector3.new(0, head.Size.Y / 2, 0)) or head.Position
                         local tipWorld = headPos + Vector3.new(0, hatWorldH, 0)
                         local rimWorld, brimWorld = {}, {}
                         for i = 1, rimSegs do
@@ -2309,6 +2451,17 @@ local function NeverHitDrawEngine()
                 for plr, _ in pairs(espObjects) do
                     if type(plr) ~= "string" and not Players:FindFirstChild(plr.Name) then removeEsp(plr) end
                 end
+
+                -- FOV Circle (fallback)
+                if G.ESPFOVCircle then
+                    local center = Camera.ViewportSize / 2
+                    fovCircle.Position = center
+                    fovCircle.Radius = G.ESPFOVRadius or 200
+                    fovCircle.Color = WHITE
+                    fovCircle.Visible = true
+                else
+                    fovCircle.Visible = false
+                end
             end)
         end)
 
@@ -2338,7 +2491,12 @@ task.spawn(NeverHitDrawEngine)
 
 setLoadingStatus("Creating UI...")
 
-local window = library:CreateWindow({})
+local windowOk, window = pcall(function() return library:CreateWindow({}) end)
+if not windowOk then
+    warn("[NeverHit V2] Failed to create UI window: " .. tostring(window))
+    pcall(function() setLoadingStatus("UI FAILED"); task.wait(1); loadingGui:Destroy() end)
+    return
+end
 
 -- Pages
 local combatPage = window:CreatePage({ Icon = "rbxassetid://8547236654" })
@@ -2862,6 +3020,12 @@ hatSection:CreateSlider({
     Callback = function(v) G.ChinaHatRadius = v end
 })
 
+hatSection:CreateToggle({
+    Name = "Follow Head Top",
+    State = false,
+    Callback = function(v) G.ChinaHatFollowTop = v end
+})
+
 -- Misc visuals
 local miscVisualsSection = visualsPage:CreateSection({ Name = "MISC", Size = 120, Side = "Right" })
 
@@ -2871,6 +3035,15 @@ miscVisualsSection:CreateToggle({
     Callback = function(v)
         G.PrefixEnabled = v
         if v then applyPrefix() else removePrefix() end
+    end
+})
+
+miscVisualsSection:CreateTextBox({
+    Name = "Tag Text",
+    State = G.PrefixText or " [NeverHit] ",
+    Callback = function(text)
+        G.PrefixText = text
+        if G.PrefixEnabled then applyPrefix() end
     end
 })
 
@@ -3039,9 +3212,9 @@ infoSection:CreateButton({
 
 local presetHelperSection = presetPage:CreateSection({ Name = "INFO", Size = 160, Side = "Left" })
 
-presetHelperSection:CreateLabel({ Text = "One-click loadouts for AA + Resolver." })
-presetHelperSection:CreateLabel({ Text = "ESP and misc are up to you." })
-presetHelperSection:CreateLabel({ Text = "Pick one, done." })
+presetHelperSection:CreateButton({ Name = "One-click loadouts for AA + Resolver.", Callback = function() end })
+presetHelperSection:CreateButton({ Name = "ESP and misc are up to you.", Callback = function() end })
+presetHelperSection:CreateButton({ Name = "Pick one, done.", Callback = function() end })
 
 local function ApplyPreset(preset)
     DisableAllAAModes()
@@ -3380,7 +3553,7 @@ task.spawn(function()
     wmGui.Name = "NeverHitWatermark"
     wmGui.ResetOnSpawn = false
     wmGui.IgnoreGuiInset = true
-    wmGui.DisplayOrder = 997
+    wmGui.DisplayOrder = 10000
     wmGui.Parent = PlayerGui
 
     local wmFrame = Instance.new("Frame")
@@ -3435,8 +3608,22 @@ end)
 ------------------------------------------------------------------------
 
 task.spawn(function()
+    local useImmediate = DrawingImmediate and DrawingImmediate.GetPaint
+    local crosshairLines = {}
+    if not useImmediate then
+        for i = 1, 4 do
+            local l = Drawing.new("Line"); l.Visible = false; l.Thickness = 1; l.ZIndex = 97
+            crosshairLines[i] = l
+        end
+    end
+
     RunService.RenderStepped:Connect(function()
-        if not G.CrosshairEnabled or G.PanicEnabled then return end
+        if not G.CrosshairEnabled or G.PanicEnabled then
+            if not useImmediate then
+                for _, l in ipairs(crosshairLines) do l.Visible = false end
+            end
+            return
+        end
         pcall(function()
             local center = Camera.ViewportSize / 2
             local size = G.CrosshairSize or 6
@@ -3444,10 +3631,27 @@ task.spawn(function()
             local thick = G.CrosshairThickness or 1
             local col = G.CrosshairColor or WHITE
 
-            DrawingImmediate.Line(Vector2.new(center.X - gap - size, center.Y), Vector2.new(center.X - gap, center.Y), col, thick, 1)
-            DrawingImmediate.Line(Vector2.new(center.X + gap, center.Y), Vector2.new(center.X + gap + size, center.Y), col, thick, 1)
-            DrawingImmediate.Line(Vector2.new(center.X, center.Y - gap - size), Vector2.new(center.X, center.Y - gap), col, thick, 1)
-            DrawingImmediate.Line(Vector2.new(center.X, center.Y + gap), Vector2.new(center.X, center.Y + gap + size), col, thick, 1)
+            local leftFrom = Vector2.new(center.X - gap - size, center.Y)
+            local leftTo = Vector2.new(center.X - gap, center.Y)
+            local rightFrom = Vector2.new(center.X + gap, center.Y)
+            local rightTo = Vector2.new(center.X + gap + size, center.Y)
+            local topFrom = Vector2.new(center.X, center.Y - gap - size)
+            local topTo = Vector2.new(center.X, center.Y - gap)
+            local botFrom = Vector2.new(center.X, center.Y + gap)
+            local botTo = Vector2.new(center.X, center.Y + gap + size)
+
+            if useImmediate then
+                DrawingImmediate.Line(leftFrom, leftTo, col, thick, 1)
+                DrawingImmediate.Line(rightFrom, rightTo, col, thick, 1)
+                DrawingImmediate.Line(topFrom, topTo, col, thick, 1)
+                DrawingImmediate.Line(botFrom, botTo, col, thick, 1)
+            else
+                local segments = { {leftFrom, leftTo}, {rightFrom, rightTo}, {topFrom, topTo}, {botFrom, botTo} }
+                for i, seg in ipairs(segments) do
+                    local l = crosshairLines[i]
+                    l.From = seg[1]; l.To = seg[2]; l.Color = col; l.Thickness = thick; l.Visible = true
+                end
+            end
         end)
     end)
 end)
