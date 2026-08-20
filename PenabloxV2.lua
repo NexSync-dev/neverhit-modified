@@ -2164,6 +2164,7 @@ local function NeverHitDrawEngine()
             end)
         end)
     else
+        if not Drawing or not Drawing.new then return end
 
         local espObjects = {}
 
@@ -3710,6 +3711,7 @@ task.spawn(function()
     local useImmediate = DrawingImmediate and DrawingImmediate.GetPaint
     local crosshairLines = {}
     if not useImmediate then
+        if not Drawing or not Drawing.new then return end
         for i = 1, 4 do
             local l = Drawing.new("Line"); l.Visible = false; l.Thickness = 1; l.ZIndex = 97
             crosshairLines[i] = l
