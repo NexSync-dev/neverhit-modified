@@ -1327,14 +1327,18 @@ task.spawn(function()
         if yawHooked then return end
         local oldNewIndex
         local yawHook = newcclosure(function(self, key, value)
-            if key == "CFrame" and not checkcaller() and G.AntiAimEnabled then
-                local chr = LocalPlayer.Character
-                local root = chr and chr:FindFirstChild("HumanoidRootPart")
-                if root and self == root then
-                    local rot = G.BaseYawantiaim or 0
-                    value = value * CFrame.Angles(0, math.rad(rot), 0)
+            local ok, result = pcall(function()
+                if key == "CFrame" and not checkcaller() and G.AntiAimEnabled then
+                    local chr = LocalPlayer.Character
+                    local root = chr and chr:FindFirstChild("HumanoidRootPart")
+                    if root and self == root then
+                        local rot = G.BaseYawantiaim or 0
+                        value = value * CFrame.Angles(0, math.rad(rot), 0)
+                    end
                 end
-            end
+                return oldNewIndex(self, key, value)
+            end)
+            if ok then return result end
             return oldNewIndex(self, key, value)
         end, "HookYaw")
         setstackhidden(yawHook, true)
@@ -2947,11 +2951,15 @@ miscExploitsSection:CreateToggle({
             if v and not G.RemoveVelocityHook then
                 local oldIndex
                 local velHook = newcclosure(function(t, k)
-                    if G.RemoveVelocity and not checkcaller() then
-                        if (k == "Velocity" or k == "AssemblyLinearVelocity") and t.Name == "HumanoidRootPart" then
-                            return Vector3.new(0, 0, 0)
+                    local ok, result = pcall(function()
+                        if G.RemoveVelocity and not checkcaller() then
+                            if (k == "Velocity" or k == "AssemblyLinearVelocity") and t.Name == "HumanoidRootPart" then
+                                return Vector3.new(0, 0, 0)
+                            end
                         end
-                    end
+                        return oldIndex(t, k)
+                    end)
+                    if ok then return result end
                     return oldIndex(t, k)
                 end, "VelocityHook")
                 setstackhidden(velHook, true)
@@ -3107,30 +3115,29 @@ infoSection:CreateButton({
 infoSection:CreateLabel({ Name = "Version 2.1", Text = "v2.1 — NeverHit Modified" })
 
 SyncUIFromGlobals = function()
-    pcall(function()
-        if UIRefs.aaToggle then UIRefs.aaToggle:Set(G.AntiAimEnabled) end
-        if UIRefs.baseYaw then UIRefs.baseYaw:Set(G.BaseYawantiaim) end
-        if UIRefs.yawLeft then UIRefs.yawLeft:Set(G.leftantiaim) end
-        if UIRefs.yawRight then UIRefs.yawRight:Set(G.rightantiaim) end
-        if UIRefs.pitch then UIRefs.pitch:Set(G.Pitchantiaim) end
-        if UIRefs.bodyYaw then UIRefs.bodyYaw:Set(G.BodyYawantiaim) end
-        if UIRefs.jitter then UIRefs.jitter:Set(G.antiaimjitter) end
-        if UIRefs.delay then UIRefs.delay:Set(G.antiaimdelayness * 1000) end
-        if UIRefs.updateRate then UIRefs.updateRate:Set(G.UnhittableRate) end
-        if UIRefs.minDesync then UIRefs.minDesync:Set(G.UnhittableMinDesync) end
-        if UIRefs.desyncBias then UIRefs.desyncBias:Set(G.UnhittableDesyncBias) end
-        if UIRefs.pitchRange then UIRefs.pitchRange:Set(G.UnhittablePitchRange) end
-        if UIRefs.flipDelay then UIRefs.flipDelay:Set(G.UnhittableFlipDelay * 1000) end
-        if UIRefs.resolverToggle then UIRefs.resolverToggle:Set(G.CustomResolverEnabled) end
-        if UIRefs.lerpToggle then UIRefs.lerpToggle:Set(G.DivineLuaLERPEnabled) end
-        if UIRefs.lerpSpeed then UIRefs.lerpSpeed:Set(G.DivineLuaLERPSpeed * 100) end
-        if UIRefs.biasAngle then UIRefs.biasAngle:Set(math.deg(G.DivineLuaBIASAngle)) end
-        if UIRefs.asymmetricPoles then UIRefs.asymmetricPoles:Set(G.AAAsymmetricPoles) end
-        if UIRefs.microNoise then UIRefs.microNoise:Set(G.AAMicroNoise) end
-        if UIRefs.perShotPitch then UIRefs.perShotPitch:Set(G.AAPerShotPitch) end
-        if UIRefs.baseYawHook then UIRefs.baseYawHook:Set(G.BaseYawHookEnabled) end
-        if UIRefs.trueRandom then UIRefs.trueRandom:Set(G.TrueRandomAA) end
-    end)
+    local function sync(fn) pcall(fn) end
+    sync(function() if UIRefs.aaToggle then UIRefs.aaToggle:Set(G.AntiAimEnabled) end end)
+    sync(function() if UIRefs.baseYaw then UIRefs.baseYaw:Set(G.BaseYawantiaim) end end)
+    sync(function() if UIRefs.yawLeft then UIRefs.yawLeft:Set(G.leftantiaim) end end)
+    sync(function() if UIRefs.yawRight then UIRefs.yawRight:Set(G.rightantiaim) end end)
+    sync(function() if UIRefs.pitch then UIRefs.pitch:Set(G.Pitchantiaim) end end)
+    sync(function() if UIRefs.bodyYaw then UIRefs.bodyYaw:Set(G.BodyYawantiaim) end end)
+    sync(function() if UIRefs.jitter then UIRefs.jitter:Set(G.antiaimjitter) end end)
+    sync(function() if UIRefs.delay then UIRefs.delay:Set(G.antiaimdelayness * 1000) end end)
+    sync(function() if UIRefs.updateRate then UIRefs.updateRate:Set(G.UnhittableRate) end end)
+    sync(function() if UIRefs.minDesync then UIRefs.minDesync:Set(G.UnhittableMinDesync) end end)
+    sync(function() if UIRefs.desyncBias then UIRefs.desyncBias:Set(G.UnhittableDesyncBias) end end)
+    sync(function() if UIRefs.pitchRange then UIRefs.pitchRange:Set(G.UnhittablePitchRange) end end)
+    sync(function() if UIRefs.flipDelay then UIRefs.flipDelay:Set(G.UnhittableFlipDelay * 1000) end end)
+    sync(function() if UIRefs.resolverToggle then UIRefs.resolverToggle:Set(G.CustomResolverEnabled) end end)
+    sync(function() if UIRefs.lerpToggle then UIRefs.lerpToggle:Set(G.DivineLuaLERPEnabled) end end)
+    sync(function() if UIRefs.lerpSpeed then UIRefs.lerpSpeed:Set(G.DivineLuaLERPSpeed * 100) end end)
+    sync(function() if UIRefs.biasAngle then UIRefs.biasAngle:Set(math.deg(G.DivineLuaBIASAngle)) end end)
+    sync(function() if UIRefs.asymmetricPoles then UIRefs.asymmetricPoles:Set(G.AAAsymmetricPoles) end end)
+    sync(function() if UIRefs.microNoise then UIRefs.microNoise:Set(G.AAMicroNoise) end end)
+    sync(function() if UIRefs.perShotPitch then UIRefs.perShotPitch:Set(G.AAPerShotPitch) end end)
+    sync(function() if UIRefs.baseYawHook then UIRefs.baseYawHook:Set(G.BaseYawHookEnabled) end end)
+    sync(function() if UIRefs.trueRandom then UIRefs.trueRandom:Set(G.TrueRandomAA) end end)
 end
 
 local presetHelperSection = presetPage:CreateSection({ Name = "INFO", Size = 160, Side = "Left" })
