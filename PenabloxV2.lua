@@ -1108,8 +1108,9 @@ task.spawn(function()
     end
 
     Hooks.feedback = function(...)
+        local args = {...}
         pcall(function()
-            for _, v in ipairs({...}) do
+            for _, v in ipairs(args) do
                 local s = decryptstring(tostring(v))
                 if s:lower():find("missed due to") then
                     local best = select(1, ResolvePlayer())
