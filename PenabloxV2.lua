@@ -194,7 +194,7 @@ end
 
 setLoadingStatus("Loading UI library...")
 
-local library = loadstring(game:HttpGet("https://raw.githubusercontent.com/NexSync-dev/test.guilib/refs/heads/main/skeet.lua"))()
+local library = loadstring(game:HttpGet("https://raw.githubusercontent.com/NexSync-dev/test.guilib/main/skeet.lua"))()
 if not library then
     warn("[NeverHit V2] Failed to load UI library")
     return
