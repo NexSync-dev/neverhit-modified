@@ -241,6 +241,7 @@ G.StutteredStaticEnabled = G.StutteredStaticEnabled or false
 G.GrayZoneEnabled = G.GrayZoneEnabled or false
 G.ResolverBaitEnabled = G.ResolverBaitEnabled or false
 G.AdaptiveAAEnabled = G.AdaptiveAAEnabled or false
+G.CheatbreakerEnabled = G.CheatbreakerEnabled or false
 G.AAMicroNoise = G.AAMicroNoise or false
 G.AAPerShotPitch = G.AAPerShotPitch or false
 G.AAAsymmetricPoles = G.AAAsymmetricPoles or false
@@ -326,6 +327,14 @@ G.DynamicHitpart = G.DynamicHitpart or false
 
 G.AutoRejoinDelay = G.AutoRejoinDelay or 0.5
 G.AutoRejoinSmart = G.AutoRejoinSmart or false
+G.SessionStats = {
+    shotsFired = 0,
+    estimatedHits = 0,
+    startTime = os.clock(),
+    modeBreakdown = {},
+    lastShotTime = 0,
+}
+
 G.LastRejoinTime = 0
 G.RejoinCount = 0
 
@@ -725,6 +734,9 @@ do
             local method = getnamecallmethod()
             if method == "FireServer" and self == cachedMainEvent and G.RageBotEnabled then
                 local args = {...}
+                local origArgs = {}
+                for i = 1, #args do origArgs[i] = args[i] end
+                local shotModified = false
 
                 local ok, err = pcall(function()
                     local ok_action, action = pcall(decryptstring, args[1])
@@ -809,6 +821,7 @@ do
                         end
                         args[8] = encryptstring("nil")
                         args[9] = encryptstring("nil")
+                        shotModified = true
                     end
 
                     if G.UnhittableEngine and G.AntiAimEnabled and cachedAAHandler then
@@ -822,7 +835,10 @@ do
                     G.SessionStats.lastShotTime = os.clock()
                 end)
 
-                return oldNamecall(self, unpack(args))
+                if shotModified then
+                    return oldNamecall(self, unpack(args))
+                end
+                return oldNamecall(self, unpack(origArgs))
             end
             return oldNamecall(self, ...)
         end, "ForceHitNamecall"))
@@ -1600,6 +1616,38 @@ task.spawn(function()
         AAHandler.SendPitchMode(nil, "Static", pitch, 0, 0, 0, 0, 0)
     end
 
+    local cheatbreakerTick = 0
+    local cheatbreakerPhase = 0
+    local cheatbreakerPoleIdx = 1
+    local CHEATBREAKER_POLES = {
+        math.rad(137), math.rad(274), math.rad(51), math.rad(188),
+        math.rad(325), math.rad(102), math.rad(239), math.rad(16),
+    }
+
+    local function SendCheatbreaker(dt)
+        cheatbreakerTick = cheatbreakerTick + dt
+        cheatbreakerPhase = cheatbreakerPhase + PHI_STEP * (1 + aaRandom() * 0.5)
+
+        local poleAngle = CHEATBREAKER_POLES[cheatbreakerPoleIdx]
+        cheatbreakerPoleIdx = (cheatbreakerPoleIdx % #CHEATBREAKER_POLES) + 1
+
+        local yaw = math.deg(poleAngle + cheatbreakerPhase * 0.3)
+        local desync = 30 + math.sin(cheatbreakerPhase * 1.3) * 45
+        local pitch = -(30 + math.cos(cheatbreakerPhase * 0.7) * 50)
+
+        local roll = aaRandom()
+        if roll < 0.15 then
+            desync = -desync
+            pitch = -pitch - 20
+        elseif roll < 0.30 then
+            yaw = yaw + 180
+        end
+
+        AAHandler.SendYawJitter(nil, "Static", yaw, 0, 0, 0, 0, 0)
+        AAHandler.SendBodyYaw(nil, desync)
+        AAHandler.SendPitchMode(nil, "Static", pitch, 0, 0, 0, 0, 0)
+    end
+
     local lastSent = {}
     local function sendManualAA()
         local key = table.concat({
@@ -1645,7 +1693,7 @@ task.spawn(function()
         elseif G.TrueRandomAA or G.GoldenRatioEnabled or G.MultiPoleEnabled
             or G.CompoundDesyncEnabled or G.StutteredStaticEnabled
             or G.FrequencySweepEnabled or G.GrayZoneEnabled
-            or G.ResolverBaitEnabled or G.AdaptiveAAEnabled then
+            or G.ResolverBaitEnabled or G.AdaptiveAAEnabled or G.CheatbreakerEnabled then
             interval = 1 / 60
         end
 
@@ -1668,6 +1716,7 @@ task.spawn(function()
                 if G.GrayZoneEnabled then SendGrayZone(); return end
                 if G.ResolverBaitEnabled then SendResolverBait(); return end
                 if G.AdaptiveAAEnabled then SendAdaptive(dt); return end
+                if G.CheatbreakerEnabled then SendCheatbreaker(dt); return end
                 sendManualAA()
             end)
 
@@ -2573,7 +2622,7 @@ local aaModeList = {
     "Manual (Static)", "Manual (Offset)", "Manual (Center)", "Manual (3-Way)", "Manual (5-Way)",
     "True Random", "Golden Ratio", "Multi-Pole", "Frequency Sweep",
     "Compound Desync", "Stuttered Static", "Gray Zone", "Resolver Bait", "Adaptive (Anti-Hit)",
-    "Unhittable Engine"
+    "Cheatbreaker", "Unhittable Engine"
 }
 
 local function DisableAllAAModes()
@@ -2586,6 +2635,7 @@ local function DisableAllAAModes()
     G.GrayZoneEnabled = false
     G.ResolverBaitEnabled = false
     G.AdaptiveAAEnabled = false
+    G.CheatbreakerEnabled = false
     G.UnhittableEngine = false
 end
 
@@ -2611,6 +2661,7 @@ UIRefs.activeMode = aaGeneralSection:CreateDropdown({
         elseif mode == "Gray Zone" then G.GrayZoneEnabled = true
         elseif mode == "Resolver Bait" then G.ResolverBaitEnabled = true
         elseif mode == "Adaptive (Anti-Hit)" then G.AdaptiveAAEnabled = true
+        elseif mode == "Cheatbreaker" then G.CheatbreakerEnabled = true
         elseif mode == "Unhittable Engine" then G.UnhittableEngine = true
         end
         G.AAdirty = true
@@ -3150,7 +3201,8 @@ SyncUIFromGlobals = function()
             elseif G.GrayZoneEnabled then modeIdx = 12
             elseif G.ResolverBaitEnabled then modeIdx = 13
             elseif G.AdaptiveAAEnabled then modeIdx = 14
-            elseif G.UnhittableEngine then modeIdx = 15
+            elseif G.CheatbreakerEnabled then modeIdx = 15
+            elseif G.UnhittableEngine then modeIdx = 16
             else
                 local m = G.typeofantiaim or "Static"
                 if m == "Static" then modeIdx = 1
@@ -3421,14 +3473,6 @@ local function handleAutoRejoin()
 end
 
 game:GetService("GuiService").ErrorMessageChanged:Connect(handleAutoRejoin)
-
-G.SessionStats = {
-    shotsFired = 0,
-    estimatedHits = 0,
-    startTime = os.clock(),
-    modeBreakdown = {},
-    lastShotTime = 0,
-}
 
 local keybindMap = {}
 
