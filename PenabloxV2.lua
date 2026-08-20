@@ -2345,7 +2345,7 @@ local combatPage = window:CreatePage({ Icon = "rbxassetid://8547236654" })
 local aaPage = window:CreatePage({ Icon = "rbxassetid://8547256547" })
 local visualsPage = window:CreatePage({ Icon = "rbxassetid://8547254518" })
 local miscPage = window:CreatePage({ Icon = "rbxassetid://8547249956" })
-local presetPage = window:CreatePage({ Icon = "rbxassetid://8547250556" })
+local presetPage = window:CreatePage({ Icon = "rbxassetid://8547236654" })
 
 ------------------------------------------------------------------------
 -- 21a. COMBAT PAGE
@@ -2563,6 +2563,26 @@ aaGeneralSection:CreateDropdown({
         G.AAdirty = true
     end
 })
+
+local descSection = aaPage:CreateSection({ Name = "MODE CHEAT SHEET", Size = 350, Side = "Left" })
+
+descSection:CreateLabel({ Text = "Manual: You control every angle." })
+descSection:CreateLabel({ Text = "True Random: Every tick is random." })
+descSection:CreateLabel({ Text = "  Best all-around. Hard to predict." })
+descSection:CreateLabel({ Text = "Golden Ratio: Jitter uses phi intervals." })
+descSection:CreateLabel({ Text = "  Math-based chaos. Smart randomness." })
+descSection:CreateLabel({ Text = "Multi-Pole: Covers 3/4/5 angles at once." })
+descSection:CreateLabel({ Text = "  Wide coverage, harder to peek." })
+descSection:CreateLabel({ Text = "Compound Desync: Yaw + body stack." })
+descSection:CreateLabel({ Text = "  Max desync. Most aggressive." })
+descSection:CreateLabel({ Text = "Freq Sweep: Sweeps frequencies over time." })
+descSection:CreateLabel({ Text = "  Beats pattern readers." })
+descSection:CreateLabel({ Text = "Stuttered Static: Mostly still + jitters." })
+descSection:CreateLabel({ Text = "  Low FPS friendly. Subtle." })
+descSection:CreateLabel({ Text = "Gray Zone: Dodge weird positions." })
+descSection:CreateLabel({ Text = "Resolver Bait: Tricks enemy resolvers." })
+descSection:CreateLabel({ Text = "Adaptive: Auto-switches when hit." })
+descSection:CreateLabel({ Text = "Unhittable: Classic NH preset engine." })
 
 aaGeneralSection:CreateButton({
     Name = "Apply NeverHit Preset",
