@@ -641,6 +641,9 @@ task.spawn(function()
             t.CFrameMonitor.enabled = false
             t.NoClipProtect.enabled = false
             t.HitboxProtect.enabled = false
+            t.PlatformStandProtect.enabled = false
+            t.HipHeightProtect.enabled = false
+            t.GravityProtect.enabled = false
             t.PartRemoveProtect = false
             t.PartRenameProtect = false
         end)
