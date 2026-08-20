@@ -2497,6 +2497,33 @@ do
     end)
 
     local savedWalkSpeed = 16
+    local flightBV = nil
+    local flightBG = nil
+
+    local function createFlightObjects(hrp)
+        if flightBV then flightBV:Destroy() end
+        if flightBG then flightBG:Destroy() end
+
+        flightBV = Instance.new("BodyVelocity")
+        flightBV.Name = "NeverHitFlight"
+        flightBV.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
+        flightBV.P = 10000
+        flightBV.Velocity = Vector3.zero
+        flightBV.Parent = hrp
+
+        flightBG = Instance.new("BodyGyro")
+        flightBG.Name = "NeverHitGyro"
+        flightBG.MaxTorque = Vector3.new(math.huge, math.huge, math.huge)
+        flightBG.P = 10000
+        flightBG.D = 500
+        flightBG.CFrame = hrp.CFrame
+        flightBG.Parent = hrp
+    end
+
+    local function destroyFlightObjects()
+        if flightBV then pcall(function() flightBV:Destroy() end); flightBV = nil end
+        if flightBG then pcall(function() flightBG:Destroy() end); flightBG = nil end
+    end
 
     RunService.Heartbeat:Connect(function(dt)
         local ok, err = pcall(function()
@@ -2509,6 +2536,9 @@ do
             local clipping = G.NoclipEnabled
 
             if flying then
+                if not flightBV or not flightBV.Parent then
+                    createFlightObjects(hrp)
+                end
                 if hum.WalkSpeed ~= 0 then
                     savedWalkSpeed = hum.WalkSpeed
                     hum.WalkSpeed = 0
@@ -2524,12 +2554,14 @@ do
                     if moveUp then dir = dir + Vector3.new(0, 1, 0) end
                     if moveDown then dir = dir - Vector3.new(0, 1, 0) end
                     if dir.Magnitude > 0 then
-                        hrp.AssemblyLinearVelocity = dir.Unit * G.FlightSpeed
+                        flightBV.Velocity = dir.Unit * G.FlightSpeed
                     else
-                        hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+                        flightBV.Velocity = Vector3.zero
                     end
+                    flightBG.CFrame = camCF
                 end
             else
+                destroyFlightObjects()
                 if hum.WalkSpeed == 0 then
                     hum.WalkSpeed = savedWalkSpeed
                 end
@@ -2543,6 +2575,11 @@ do
                 end
             end
         end)
+    end)
+
+    LocalPlayer.CharacterAdded:Connect(function()
+        destroyFlightObjects()
+        savedWalkSpeed = 16
     end)
 end
 
