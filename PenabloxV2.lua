@@ -102,7 +102,7 @@ statusLabel.TextXAlignment = Enum.TextXAlignment.Left
 statusLabel.Parent = loadingFrame
 
 local function setLoadingStatus(text)
-    statusLabel.Text = text
+    pcall(function() statusLabel.Text = text end)
 end
 
 local notifyQueue = {}
@@ -252,12 +252,30 @@ G.UnhittableDesyncBias = G.UnhittableDesyncBias or 65
 G.UnhittablePitchRange = G.UnhittablePitchRange or 35
 G.UnhittableFlipDelay = G.UnhittableFlipDelay or 0.008
 
+G.GoldenRatioEnabled = G.GoldenRatioEnabled or false
+G.MultiPoleEnabled = G.MultiPoleEnabled or false
+G.MultiPoleCount = G.MultiPoleCount or 3
+G.FrequencySweepEnabled = G.FrequencySweepEnabled or false
+G.CompoundDesyncEnabled = G.CompoundDesyncEnabled or false
+G.CompoundYawAmp = G.CompoundYawAmp or 157
+G.CompoundBodyAmp = G.CompoundBodyAmp or 60
+G.StutteredStaticEnabled = G.StutteredStaticEnabled or false
+G.GrayZoneEnabled = G.GrayZoneEnabled or false
+G.ResolverBaitEnabled = G.ResolverBaitEnabled or false
+G.AdaptiveAAEnabled = G.AdaptiveAAEnabled or false
+G.AAMicroNoise = G.AAMicroNoise or false
+G.AAPerShotPitch = G.AAPerShotPitch or false
+G.AAAsymmetricPoles = G.AAAsymmetricPoles or false
+
 G.CustomResolverEnabled = G.CustomResolverEnabled or false
 G.CustomResolverMode = G.CustomResolverMode or "Divine.lua OLD"
 G.DivineLuaCorrection = G.DivineLuaCorrection or false
 G.DivineLuaLERPEnabled = G.DivineLuaLERPEnabled or false
 G.DivineLuaLERPSpeed = G.DivineLuaLERPSpeed or 0.35
 G.DivineLuaBIASAngle = G.DivineLuaBIASAngle or math.rad(25)
+
+G.CustomBruteOffsets = G.CustomBruteOffsets or nil
+G.ResolverModePerEnemy = G.ResolverModePerEnemy or false
 
 G.ESPEnabled = G.ESPEnabled or false
 G.ESPBox = (G.ESPBox == nil) and true or G.ESPBox
@@ -289,6 +307,40 @@ G.PrefixText = G.PrefixText or " [NeverHit] "
 G.PrefixColor = G.PrefixColor or Color3.fromRGB(255, 0, 0)
 G.AutoRejoin = (G.AutoRejoin == nil) and true or G.AutoRejoin
 G.IgnoreGP = G.IgnoreGP or false
+G.AAdirty = G.AAdirty or false
+
+-- QOL
+G.PanicEnabled = false
+G.Keybinds = G.Keybinds or {}
+G.WatermarkEnabled = (G.WatermarkEnabled == nil) and true or G.WatermarkEnabled
+G.CrosshairEnabled = G.CrosshairEnabled or false
+G.CrosshairSize = G.CrosshairSize or 6
+G.CrosshairGap = G.CrosshairGap or 4
+G.CrosshairThickness = G.CrosshairThickness or 1
+G.CrosshairColor = G.CrosshairColor or Color3.fromRGB(255, 255, 255)
+G.SessionStatsEnabled = (G.SessionStatsEnabled == nil) and true or G.SessionStatsEnabled
+
+-- ESP additions
+G.ESPSkeleton = G.ESPSkeleton or false
+G.ESPSkeletonColor = G.ESPColor or Color3.fromRGB(255, 161, 232)
+G.ESPVelArrow = G.ESPVelArrow or false
+G.ESPVelArrowColor = G.ESPVelArrowColor or Color3.fromRGB(0, 255, 200)
+G.ESPAAIndicator = G.ESPAAIndicator or false
+G.ESPHitChance = G.ESPHitChance or false
+G.ESPGhost = G.ESPGhost or false
+G.ESPOffScreen = G.ESPOffScreen or false
+G.ESPFOVCircle = G.ESPFOVCircle or false
+G.ESPFOVRadius = G.ESPFOVRadius or 200
+G.ESPSpreadCircle = G.ESPSpreadCircle or false
+
+-- Dynamic hitpart
+G.DynamicHitpart = G.DynamicHitpart or false
+
+-- Auto rejoin improvements
+G.AutoRejoinDelay = G.AutoRejoinDelay or 0.5
+G.AutoRejoinSmart = G.AutoRejoinSmart or false
+G.LastRejoinTime = 0
+G.RejoinCount = 0
 
 -- Hitparts on load
 if G.RageBotHitPos == "Auto" then
@@ -346,7 +398,7 @@ Hooks.SetMathRandom = function(enabled)
 end
 
 Hooks.printHooked = false
-Hooks.feedback = nil
+Hooks.feedback = Hooks.feedback or function() end
 Hooks.SetPrint = function(enabled)
     if enabled == Hooks.printHooked then return end
     if enabled then
@@ -492,6 +544,39 @@ local function GetClosestPlayer()
     return best
 end
 
+local function GetCrosshairTarget()
+    local camCF = Camera.CFrame
+    local best, bestDot = nil, 0.95
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr ~= LocalPlayer and plr.Character then
+            local hrp = plr.Character:FindFirstChild("HumanoidRootPart")
+            local hum = plr.Character:FindFirstChildOfClass("Humanoid")
+            if hrp and hum and hum.Health > 0 then
+                local dir = (hrp.Position - camCF.Position).Unit
+                local dot = camCF.LookVector:Dot(dir)
+                if dot > bestDot then bestDot = dot; best = plr end
+            end
+        end
+    end
+    return best
+end
+
+local function resolveDesyncPart(target, aimPos)
+    local resolved = Hooks.resolvedYaw
+    if not resolved then return aimPos end
+    local char = target and target.Character
+    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+    local rYaw = resolved[target]
+    if not hrp or not rYaw then return aimPos end
+    local look = hrp.CFrame.LookVector
+    local realYaw = math.atan2(look.X, look.Z)
+    local d = math.atan2(math.sin(rYaw - realYaw), math.cos(rYaw - realYaw))
+    if math.abs(d) < math.rad(2) then return aimPos end
+    local rel = aimPos - hrp.Position
+    local c, s = math.cos(d), math.sin(d)
+    return hrp.Position + Vector3.new(rel.X * c + rel.Z * s, rel.Y, -rel.X * s + rel.Z * c)
+end
+
 local function GetNetworkLatency()
     local ok, ping = pcall(function() return LocalPlayer:GetNetworkPing() end)
     if ok and type(ping) == "number" and ping > 0.001 then
@@ -508,7 +593,9 @@ local function PredictPosition(part)
     local hrp = part.Parent and part.Parent:FindFirstChild("HumanoidRootPart")
     local vel = hrp and hrp.AssemblyLinearVelocity
     if typeof(vel) == "Vector3" and vel.Magnitude > 0.5 then
-        return part.Position + vel * lead
+        local decel = 0.85
+        local scaledVel = vel * (1 - decel * lead / 2)
+        return part.Position + scaledVel * lead
     end
     return part.Position
 end
@@ -667,76 +754,147 @@ local function disabledefaultragebot()
 end
 
 ------------------------------------------------------------------------
--- 12. FORCE HIT (skidded from original — hooks RemoteEvent prototype)
+-- 12b. FORCE HIT HELPERS
 ------------------------------------------------------------------------
 
-task.spawn(function()
-    if not globalexists("hookfunction") then return end
+local function findTargetAtPos(pos)
+    local best, bestDist = nil, math.huge
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr ~= LocalPlayer and plr.Character then
+            local hrp = plr.Character:FindFirstChild("HumanoidRootPart")
+            local hum = plr.Character:FindFirstChildOfClass("Humanoid")
+            if hrp and hum and hum.Health > 0 then
+                local d = (hrp.Position - pos).Magnitude
+                if d < bestDist then best = plr; bestDist = d end
+            end
+        end
+    end
+    return best
+end
 
-    pcall(function()
-        local oldFireServer
-        oldFireServer = hookfunction(Instance.new("RemoteEvent").FireServer, function(self, ...)
-            local args = {...}
-            if tostring(self) == "MainEvent" and G.RageBotEnabled then
-                pcall(function()
+------------------------------------------------------------------------
+-- 12. FORCE HIT (__namecall hook — Volt-compatible, synchronous)
+------------------------------------------------------------------------
+
+do
+    if globalexists("hookmetamethod") then
+        local cachedMainEvent = game:GetService("ReplicatedStorage"):FindFirstChild("MainEvent")
+        local cachedAAHandler = nil
+        task.spawn(function()
+            if not cachedMainEvent then
+                cachedMainEvent = game:GetService("ReplicatedStorage"):WaitForChild("MainEvent", 30)
+            end
+            pcall(function()
+                cachedAAHandler = require(game:GetService("ReplicatedFirst"):WaitForChild("AAHandler"))
+            end)
+        end)
+
+        local oldNamecall
+        oldNamecall = hookmetamethod(game, "__namecall", newcclosure(function(self, ...)
+            local method = getnamecallmethod()
+            if method == "FireServer" and self == cachedMainEvent and G.RageBotEnabled then
+                local args = {...}
+
+                local ok, err = pcall(function()
                     local ok_action, action = pcall(decryptstring, args[1])
-                    if ok_action and (action == "Shoot" or action == "MeleeHit") then
-                        local target = GetClosestPlayer()
+                    if not ok_action then return end
+                    if action ~= "Shoot" and action ~= "MeleeHit" then return end
 
-                        if target and target.Character and target.Character:FindFirstChild("Head") then
-                            local HitPos = G.RageBotHitPos or "Torso"
-                            local dmgpart = G.RageBotHitPart or "Head"
-                            local AutoPart = nil
+                    local HitPos = G.RageBotHitPos or "Torso"
+                    local dmgpart = G.RageBotHitPart or "Head"
+                    local origin = typeof(args[6]) == "Vector3" and args[6] or nil
 
-                            if HitPos == "Auto" then
-                                local tp = LocalPlayer:FindFirstChild("TargetPos")
-                                local targetPos = tp and tp.Value
-                                if typeof(targetPos) == "Vector3" and targetPos ~= Vector3.new(0,0,0) then
-                                    AutoPart = targetPos
-                                else
-                                    AutoPart = "Torso"
-                                end
-                            end
+                    local aimPos = nil
+                    local partName = nil
+                    local target = nil
 
-                            if HitPos and dmgpart then
-                                args[3] = encryptstring(dmgpart)
+                    local tp = LocalPlayer:FindFirstChild("TargetPos")
+                    local targetPos = tp and tp.Value
+                    local preferAuto = typeof(targetPos) == "Vector3" and targetPos.Magnitude > 0.5
 
-                                if AutoPart then
-                                    local partName = GetPartNameAtPos(AutoPart)
-                                    local tuffpart = target.Character:FindFirstChild(partName)
-
-                                    if tuffpart and tuffpart.Position ~= Vector3.new(0,0,0) then
-                                        args[7] = tuffpart.Position or AutoPart
-                                        if typeof(args[6]) == "Vector3" and typeof(AutoPart) == "Vector3" then
-                                            args[5] = (args[6] - tuffpart.Position).Magnitude
-                                        end
-                                    else
-                                        args[7] = AutoPart
-                                        if typeof(args[6]) == "Vector3" and typeof(AutoPart) == "Vector3" then
-                                            args[5] = (args[6] - AutoPart).Magnitude
-                                        end
-                                    end
-                                else
-                                    local part = target.Character:FindFirstChild(HitPos)
-                                    if part then
-                                        args[7] = part.Position
-                                        if typeof(args[6]) == "Vector3" then
-                                            args[5] = (args[6] - part.Position).Magnitude
-                                        end
-                                    end
-                                end
-
-                                args[8] = encryptstring("nil")
-                                args[9] = encryptstring("nil")
+                    if HitPos == "Auto" and preferAuto then
+                        aimPos = targetPos
+                        target = findTargetAtPos(aimPos) or GetCrosshairTarget()
+                        partName = GetPartNameAtPos(aimPos, origin)
+                    else
+                        target = GetCrosshairTarget()
+                        if target and target.Character then
+                            local char = target.Character
+                            local partNameLookup = HitPos == "Auto" and "Head" or HitPos
+                            local part = char:FindFirstChild(partNameLookup)
+                            if not part then part = char:FindFirstChild("HumanoidRootPart") end
+                            if part then
+                                aimPos = PredictPosition(part)
+                                partName = part.Name
                             end
                         end
                     end
+
+                    if not aimPos or not target then return end
+
+                    if G.IgnoreGP and target.Character then
+                        local hum = target.Character:FindFirstChildOfClass("Humanoid")
+                        if hum and hum.Health >= hum.MaxHealth and hum.MaxHealth > 0 then return end
+                    end
+
+                    aimPos = resolveDesyncPart(target, aimPos)
+
+                    if G.HumanizeHitPos and typeof(aimPos) == "Vector3" then
+                        aimPos = sanitizePos(aimPos + Vector3.new(
+                            (aaRandom() * 2 - 1) * 0.15,
+                            (aaRandom() * 2 - 1) * 0.15,
+                            (aaRandom() * 2 - 1) * 0.15
+                        ))
+                    end
+
+                    aimPos = sanitizePos(aimPos)
+
+                    if G.DynamicHitpart and target and target.Character and aimPos then
+                        local dmgParts = {"Head", "UpperTorso", "HumanoidRootPart", "LowerTorso", "LeftUpperArm", "RightUpperArm", "LeftLowerLeg", "RightLowerLeg"}
+                        local bestPart, bestDist = nil, math.huge
+                        for _, pName in ipairs(dmgParts) do
+                            local p = target.Character:FindFirstChild(pName)
+                            if p then
+                                local d = (p.Position - aimPos).Magnitude
+                                if d < bestDist then
+                                    bestDist = d
+                                    bestPart = p
+                                end
+                            end
+                        end
+                        if bestPart and bestDist < 5 then
+                            partName = bestPart.Name
+                            aimPos = PredictPosition(bestPart)
+                        end
+                    end
+
+                    if aimPos then
+                        args[3] = encryptstring(partName or dmgpart)
+                        args[7] = aimPos
+                        if typeof(args[6]) == "Vector3" and typeof(aimPos) == "Vector3" then
+                            args[5] = (args[6] - aimPos).Magnitude
+                        end
+                        args[8] = encryptstring("nil")
+                        args[9] = encryptstring("nil")
+                    end
+
+                    if G.UnhittableEngine and G.AntiAimEnabled and cachedAAHandler then
+                        local pitch = -(20 + aaRandom() * (G.UnhittablePitchRange or 35))
+                        pcall(function()
+                            cachedAAHandler.SendPitchMode(nil, "Static", pitch, 0, 0, 0, 0, 0)
+                        end)
+                    end
+
+                    G.SessionStats.shotsFired = G.SessionStats.shotsFired + 1
+                    G.SessionStats.lastShotTime = os.clock()
                 end)
+
+                return oldNamecall(self, unpack(args))
             end
-            return oldFireServer(self, unpack(args))
-        end)
-    end)
-end)
+            return oldNamecall(self, ...)
+        end, "ForceHitNamecall"))
+    end
+end
 
 -- Auto-ping prediction
 task.spawn(function()
@@ -931,7 +1089,7 @@ task.spawn(function()
 
     Hooks.feedback = function(...)
         for _, v in ipairs({...}) do
-            local s = tostring(v)
+            local s = decryptstring(tostring(v))
             if s:lower():find("missed due to") then
                 local myRoot = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
                 if myRoot then
@@ -1066,6 +1224,13 @@ task.spawn(function()
         else return "JITTER_AA" end
     end
 
+    local function getBruteOffsets()
+        if G.CustomBruteOffsets and type(G.CustomBruteOffsets) == "table" and #G.CustomBruteOffsets > 0 then
+            return G.CustomBruteOffsets
+        end
+        return BRUTE_OFFSETS
+    end
+
     local function resolveYaw(plr)
         local hrp = plr.Character and plr.Character:FindFirstChild("HumanoidRootPart")
         if not hrp then return 0 end
@@ -1074,11 +1239,25 @@ task.spawn(function()
 
         if mode == "LEGIT" or mode == "UNKNOWN" then return realYaw end
 
+        if G.ResolverModePerEnemy then
+            if mode == "STATIC_AA" then
+                if not lockedYaw[plr] then lockedYaw[plr] = realYaw end
+                if lastMissed[plr] then
+                    local offsets = getBruteOffsets()
+                    local step = missCounter[plr] or 0
+                    lockedYaw[plr] = norm(realYaw + offsets[(step % #offsets) + 1])
+                    lastMissed[plr] = nil
+                end
+                return lockedYaw[plr]
+            end
+        end
+
         if mode == "STATIC_AA" then
             if not lockedYaw[plr] then lockedYaw[plr] = realYaw end
             if lastMissed[plr] then
+                local offsets = getBruteOffsets()
                 local step = missCounter[plr] or 0
-                lockedYaw[plr] = norm(realYaw + BRUTE_OFFSETS[(step % #BRUTE_OFFSETS) + 1])
+                lockedYaw[plr] = norm(realYaw + offsets[(step % #offsets) + 1])
                 lastMissed[plr] = nil
             end
             return lockedYaw[plr]
@@ -1097,6 +1276,8 @@ task.spawn(function()
                 chosen = dA < dB and cb or ca
                 lastMissed[plr] = nil
             end
+            local correction = G.DivineLuaBIASAngle or 0
+            chosen = norm(chosen + correction)
             targetYaw = chosen
         end
         if G.DivineLuaLERPEnabled then
@@ -1257,6 +1438,168 @@ task.spawn(function()
         AAHandler.SendPitchMode(nil, "Static", pitch, 0, 0, 0, 0, 0)
     end
 
+    -- GOLDEN RATIO JITTER
+    local PHI_STEP = math.rad(137.508)
+    local goldenPhase = 0
+
+    local function SendGoldenRatio()
+        goldenPhase = goldenPhase + PHI_STEP
+        local yaw = goldenPhase % (math.pi * 2)
+        local desync = math.cos(goldenPhase * 1.618) * 70
+        local pitch = -(45 + math.sin(goldenPhase * 2.414) * 30)
+        AAHandler.SendYawJitter(nil, "Static", yaw, 0, 0, 0, 0, 0)
+        AAHandler.SendBodyYaw(nil, desync)
+        AAHandler.SendPitchMode(nil, "Static", pitch, 0, 0, 0, 0, 0)
+    end
+
+    -- MULTI-POLE JITTER
+    local multiPoleIdx = 1
+    local function getMultiPoleAngles(count)
+        local angles = {}
+        local step = (2 * math.pi) / count
+        for i = 0, count - 1 do angles[#angles + 1] = step * i end
+        return angles
+    end
+
+    local function SendMultiPole()
+        local count = math.clamp(G.MultiPoleCount or 3, 3, 5)
+        local poles = getMultiPoleAngles(count)
+        local yaw = poles[multiPoleIdx]
+        multiPoleIdx = (multiPoleIdx % #poles) + 1
+        local desync = math.cos(yaw * 1.618) * 60
+        local pitch = -(50 + math.sin(yaw * 2.414) * 25)
+        AAHandler.SendYawJitter(nil, "Static", math.deg(yaw), 0, 0, 0, 0, 0)
+        AAHandler.SendBodyYaw(nil, desync)
+        AAHandler.SendPitchMode(nil, "Static", pitch, 0, 0, 0, 0, 0)
+    end
+
+    -- FREQUENCY SWEEP
+    local sweepTime = 0
+    local SWEEP_PERIOD = 4
+
+    local function SendFrequencySweep(dt)
+        sweepTime = sweepTime + dt
+        local phase = (sweepTime % SWEEP_PERIOD) / SWEEP_PERIOD
+        local freq = 5 + math.sin(phase * math.pi) * 25
+        local interval = 1 / freq
+        AAHandler.SendYawJitter(nil, "Jitter", 0, G.leftantiaim, G.rightantiaim, G.antiaimjitter, interval, 0)
+        local desync = 40 + math.sin(phase * math.pi * 2) * 30
+        AAHandler.SendBodyYaw(nil, desync)
+        local pitch = -(35 + math.cos(phase * math.pi * 1.5) * 25)
+        AAHandler.SendPitchMode(nil, "Static", pitch, 0, 0, 0, 0, 0)
+    end
+
+    -- COMPOUND DESYNC (THREE OSCILLATOR)
+    local t1, t2, t3 = 0, 0, 0
+    local F1 = 8
+    local F2 = 8 * 1.618
+    local F3 = 8 * 1.414
+
+    local function SendCompoundDesync(dt)
+        t1 = t1 + dt * F1
+        t2 = t2 + dt * F2
+        t3 = t3 + dt * F3
+        local yaw = math.sin(t1) * (G.CompoundYawAmp or 157)
+        local body = math.sin(t2) * (G.CompoundBodyAmp or 60)
+        local pitch = -(45 + math.sin(t3) * 35)
+        AAHandler.SendYawJitter(nil, "Static", 0, -yaw, yaw, 180, 0, 0)
+        AAHandler.SendBodyYaw(nil, body)
+        AAHandler.SendPitchMode(nil, "Static", pitch, 0, 0, 0, 0, 0)
+    end
+
+    -- STUTTERED STATIC
+    local stutterToggle = false
+
+    local function SendStutteredStatic()
+        stutterToggle = not stutterToggle
+        if stutterToggle then
+            AAHandler.SendYawJitter(nil, "Static", G.leftantiaim or 0, 0, 0, 0, 0, 0)
+            AAHandler.SendBodyYaw(nil, G.BodyYawantiaim or 60)
+            AAHandler.SendPitchMode(nil, "Static", G.Pitchantiaim or -55, 0, 0, 0, 0, 0)
+        else
+            local flipAngle = G.leftantiaim + 180
+            AAHandler.SendYawJitter(nil, "Static", flipAngle, 0, 0, 0, 0, 0)
+            AAHandler.SendBodyYaw(nil, -(G.BodyYawantiaim or 60))
+            AAHandler.SendPitchMode(nil, "Static", -(G.Pitchantiaim or -55), 0, 0, 0, 0, 0)
+        end
+    end
+
+    -- GRAY ZONE BRUTEFORCE DODGE
+    local GRAY_ZONE_8 = {}
+    local GRAY_ZONE_16 = {}
+    for i = 0, 7 do GRAY_ZONE_8[#GRAY_ZONE_8 + 1] = math.rad(i * 45 + 22.5) end
+    for i = 0, 15 do GRAY_ZONE_16[#GRAY_ZONE_16 + 1] = math.rad(i * 22.5 + 11.25) end
+    local grayIdx = 1
+
+    local function SendGrayZone()
+        local angle = GRAY_ZONE_8[grayIdx]
+        grayIdx = (grayIdx % #GRAY_ZONE_8) + 1
+        AAHandler.SendYawJitter(nil, "Static", math.deg(angle), 0, 0, 0, 0, 0)
+        AAHandler.SendBodyYaw(nil, 60)
+        AAHandler.SendPitchMode(nil, "Static", -55, 0, 0, 0, 0, 0)
+    end
+
+    -- RESOLVER BAIT
+    local baitPhase = 0
+    local BAIT_HOLD_FRAMES = 18
+
+    local function SendResolverBait()
+        baitPhase = (baitPhase + 1) % (BAIT_HOLD_FRAMES * 2)
+        if baitPhase < BAIT_HOLD_FRAMES then
+            AAHandler.SendYawJitter(nil, "Static", 67, 0, 0, 0, 0, 0)
+            AAHandler.SendBodyYaw(nil, 67)
+            AAHandler.SendPitchMode(nil, "Static", -50, 0, 0, 0, 0, 0)
+        else
+            AAHandler.SendYawJitter(nil, "Static", 0, 0, 0, 0, 0, 0)
+            AAHandler.SendBodyYaw(nil, -70)
+            AAHandler.SendPitchMode(nil, "Static", -80, 0, 0, 0, 0, 0)
+        end
+    end
+
+    -- ADAPTIVE (ANTI-HIT RESPONSE)
+    local adaptiveBlacklist = {}
+    local lastAdaptiveHP = 100
+    local adaptiveCycleModes = {"GoldenRatio", "MultiPole", "TrueRandom"}
+    local adaptiveCycleIdx = 1
+
+    local function CycleAdaptiveMode()
+        adaptiveCycleIdx = (adaptiveCycleIdx % #adaptiveCycleModes) + 1
+        local mode = adaptiveCycleModes[adaptiveCycleIdx]
+        G.GoldenRatioEnabled = (mode == "GoldenRatio")
+        G.MultiPoleEnabled = (mode == "MultiPole")
+        G.TrueRandomAA = (mode == "TrueRandom")
+        G.UnhittableEngine = false
+        notify("NeverHit V2", "Adaptive: switched to " .. mode, 2)
+    end
+
+    local function SendAdaptive(dt)
+        local hum = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+        if hum and hum.Health < lastAdaptiveHP then
+            local hrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+            if hrp then
+                local realYaw = math.atan2(hrp.CFrame.LookVector.X, hrp.CFrame.LookVector.Z)
+                adaptiveBlacklist[#adaptiveBlacklist + 1] = realYaw
+                if #adaptiveBlacklist >= 2 then
+                    CycleAdaptiveMode()
+                    table.clear(adaptiveBlacklist)
+                end
+            end
+        end
+        if hum then lastAdaptiveHP = hum.Health end
+
+        local yaw = math.rad(90 + math.sin(os.clock() * 1.5) * 60)
+        for _, blocked in ipairs(adaptiveBlacklist) do
+            if math.abs(math.atan2(math.sin(yaw - blocked), math.cos(yaw - blocked))) < math.rad(20) then
+                yaw = yaw + math.rad(45)
+            end
+        end
+        local desync = 50 + math.sin(os.clock() * 2) * 30
+        local pitch = -(45 + math.cos(os.clock() * 1.8) * 25)
+        AAHandler.SendYawJitter(nil, "Static", math.deg(yaw), 0, 0, 0, 0, 0)
+        AAHandler.SendBodyYaw(nil, desync)
+        AAHandler.SendPitchMode(nil, "Static", pitch, 0, 0, 0, 0, 0)
+    end
+
     local lastSent = {}
     local function sendManualAA()
         local key = table.concat({
@@ -1265,27 +1608,49 @@ task.spawn(function()
             tostring(G.antiaimjitter), tostring(G.antiaimdelayness),
             tostring(G.Pitchantiaim), tostring(G.BodyYawantiaim)
         }, "|")
-        if lastSent.manual == key then return end
+        if not G.AAdirty and lastSent.manual == key then return end
+        G.AAdirty = false
         lastSent.manual = key
+
+        local leftYaw = G.leftantiaim or 0
+        local rightYaw = G.rightantiaim or 0
+        if G.AAAsymmetricPoles then
+            leftYaw = -137
+            rightYaw = 43
+        end
+
+        local pitch = G.Pitchantiaim or 0
+        if G.AAPerShotPitch then
+            pitch = -(20 + aaRandom() * 60)
+        end
 
         AAHandler.SendYawJitter(
             nil, G.typeofantiaim or "Jitter", G.BaseYawantiaim or 0,
-            G.leftantiaim or 0, G.rightantiaim or 0,
+            leftYaw, rightYaw,
             G.antiaimjitter or 0, G.antiaimdelayness or 0, G.antiaimrandomness or 0
         )
         AAHandler.SendBodyYaw(nil, G.BodyYawantiaim or 0)
-        AAHandler.SendPitchMode(nil, "Static", G.Pitchantiaim or 0, 0, 0, 0, 0, 0)
+        AAHandler.SendPitchMode(nil, "Static", pitch, 0, 0, 0, 0, 0)
     end
 
+    local frameAccum = 0
     while true do
-        local interval = 0.05
+        local dt = task.wait(0.016)
+        frameAccum = frameAccum + dt
+
+        local interval = 0.016
         if G.UnhittableEngine then
             local rate = G.UnhittableRate or 60
             interval = 1 / math.clamp(rate, 1, 1000)
-        elseif G.TrueRandomAA then
+        elseif G.TrueRandomAA or G.GoldenRatioEnabled or G.MultiPoleEnabled
+            or G.CompoundDesyncEnabled or G.StutteredStaticEnabled
+            or G.FrequencySweepEnabled or G.GrayZoneEnabled
+            or G.ResolverBaitEnabled or G.AdaptiveAAEnabled then
             interval = 1 / 60
         end
-        task.wait(interval)
+
+        if frameAccum < interval then continue end
+        frameAccum = 0
 
         if not AAHandler then warn("[V2] AAHandler missing"); return end
 
@@ -1295,6 +1660,14 @@ task.spawn(function()
             local ok, err = pcall(function()
                 if G.TrueRandomAA then SendTrueRandom(); return end
                 if G.UnhittableEngine then SendUnhittable(); return end
+                if G.GoldenRatioEnabled then SendGoldenRatio(); return end
+                if G.MultiPoleEnabled then SendMultiPole(); return end
+                if G.FrequencySweepEnabled then SendFrequencySweep(dt); return end
+                if G.CompoundDesyncEnabled then SendCompoundDesync(dt); return end
+                if G.StutteredStaticEnabled then SendStutteredStatic(); return end
+                if G.GrayZoneEnabled then SendGrayZone(); return end
+                if G.ResolverBaitEnabled then SendResolverBait(); return end
+                if G.AdaptiveAAEnabled then SendAdaptive(dt); return end
                 sendManualAA()
             end)
 
@@ -1550,6 +1923,115 @@ local function NeverHitDrawEngine()
                                         DrawingImmediate.Fonts.Monospace, 11, WHITE, 1,
                                         string.format("%.0fm", dist), true
                                     )
+                                end
+
+                                if G.ESPSkeleton and head then
+                                    local skColor = G.ESPSkeletonColor or espColor
+                                    local function jvp(name)
+                                        local p = plr.Character:FindFirstChild(name)
+                                        if not p then return nil end
+                                        local v, on = Camera:WorldToViewportPoint(p.Position)
+                                        return on and v.Z > 0 and v or nil
+                                    end
+                                    local joints = {
+                                        {"Head", "UpperTorso"}, {"UpperTorso", "LowerTorso"},
+                                        {"LowerTorso", "LeftUpperLeg"}, {"LeftUpperLeg", "LeftLowerLeg"}, {"LeftLowerLeg", "LeftFoot"},
+                                        {"LowerTorso", "RightUpperLeg"}, {"RightUpperLeg", "RightLowerLeg"}, {"RightLowerLeg", "RightFoot"},
+                                        {"UpperTorso", "LeftUpperArm"}, {"LeftUpperArm", "LeftLowerArm"}, {"LeftLowerArm", "LeftHand"},
+                                        {"UpperTorso", "RightUpperArm"}, {"RightUpperArm", "RightLowerArm"}, {"RightLowerArm", "RightHand"},
+                                    }
+                                    for _, pair in ipairs(joints) do
+                                        local a = jvp(pair[1])
+                                        local b = jvp(pair[2])
+                                        if a and b then
+                                            DrawingImmediate.Line(a, b, skColor, 1, 1)
+                                        end
+                                    end
+                                end
+
+                                if G.ESPVelArrow and root then
+                                    local vel = root.AssemblyLinearVelocity
+                                    local speed = vel.Magnitude
+                                    if speed > 1 then
+                                        local dir2d = (Camera:WorldToViewportPoint(root.Position + vel.Unit * math.clamp(speed / 10, 1, 8)) - Camera:WorldToViewportPoint(root.Position))
+                                        local arrowTip = Vector2.new(bboxCX + dir2d.X, bboxTopY + bboxH / 2 + dir2d.Y)
+                                        DrawingImmediate.Line(Vector2.new(bboxCX, bboxTopY + bboxH / 2), arrowTip, G.ESPVelArrowColor or GREEN, 1.5, 1)
+                                        DrawingImmediate.Text(arrowTip, DrawingImmediate.Fonts.Monospace, 9, G.ESPVelArrowColor or GREEN, 1, string.format("%.0f", speed), true)
+                                    end
+                                end
+
+                                if G.ESPAAIndicator and root then
+                                    local resolved = Hooks.resolvedYaw and Hooks.resolvedYaw[plr]
+                                    if resolved then
+                                        local look = root.CFrame.LookVector
+                                        local realYaw = math.atan2(look.X, look.Z)
+                                        local headVP = Camera:WorldToViewportPoint(head.Position)
+                                        if headVP.Z > 0 then
+                                            local origin = Vector2.new(headVP.X, headVP.Y)
+                                            local lineLen = 30
+                                            local obsEnd = origin + Vector2.new(math.sin(realYaw) * lineLen, -math.cos(realYaw) * lineLen)
+                                            local resEnd = origin + Vector2.new(math.sin(resolved) * lineLen, -math.cos(resolved) * lineLen)
+                                            DrawingImmediate.Line(origin, obsEnd, Color3.fromRGB(255, 165, 0), 1, 1)
+                                            DrawingImmediate.Line(origin, resEnd, Color3.fromRGB(0, 200, 255), 1, 1)
+                                        end
+                                    end
+                                end
+                            end
+                        end
+                    end
+
+                    if G.ESPHitChance then
+                        for _, plr in ipairs(Players:GetPlayers()) do
+                            if plr ~= lp and plr.Character and myRoot then
+                                local hrp = plr.Character:FindFirstChild("HumanoidRootPart")
+                                local hum = plr.Character:FindFirstChildOfClass("Humanoid")
+                                if hrp and hum and hum.Health > 0 then
+                                    local dist = (hrp.Position - myRoot.Position).Magnitude
+                                    local vel = hrp.AssemblyLinearVelocity.Magnitude
+                                    local spreadPenalty = math.clamp(dist / 100 * 0.15, 0, 0.6)
+                                    local velPenalty = vel / 50
+                                    local pingPenalty = GetNetworkLatency() * 2
+                                    local chance = math.clamp(1 - spreadPenalty - velPenalty - pingPenalty, 0, 1) * 100
+                                    local vp, on = Camera:WorldToViewportPoint(hrp.Position + Vector3.new(0, 3, 0))
+                                    if on and vp.Z > 0 then
+                                        local col = chance > 70 and GREEN or (chance > 40 and Color3.fromRGB(255, 255, 0) or RED)
+                                        DrawingImmediate.Text(vp, DrawingImmediate.Fonts.Monospace, 10, col, 1, string.format("%.0f%%", chance), true)
+                                    end
+                                end
+                            end
+                        end
+                    end
+                end
+
+                -- FOV Circle
+                if G.ESPFOVCircle then
+                    local center = Camera.ViewportSize / 2
+                    local radius = G.ESPFOVRadius or 200
+                    DrawingImmediate.Circle(center, radius, WHITE, 1, 1)
+                end
+
+                -- Off-Screen Indicators
+                if G.ESPOffScreen then
+                    for _, plr in ipairs(Players:GetPlayers()) do
+                        if plr ~= lp and plr.Character then
+                            local hrp = plr.Character:FindFirstChild("HumanoidRootPart")
+                            local hum = plr.Character:FindFirstChildOfClass("Humanoid")
+                            if hrp and hum and hum.Health > 0 and myRoot then
+                                local dist = (hrp.Position - myRoot.Position).Magnitude
+                                local vp, on = Camera:WorldToViewportPoint(hrp.Position)
+                                if not on or vp.Z <= 0 then
+                                    local screenCenter = Camera.ViewportSize / 2
+                                    local dir = (Camera:WorldToViewportPoint(hrp.Position) - Vector3.new(screenCenter.X, screenCenter.Y, 0)).Unit
+                                    local edgeRadius = math.min(Camera.ViewportSize.X, Camera.ViewportSize.Y) * 0.45
+                                    local edgeX = screenCenter.X + dir.X * edgeRadius
+                                    local edgeY = screenCenter.Y + dir.Y * edgeRadius
+                                    local angle = math.atan2(dir.Y, dir.X)
+                                    local arrowSize = 8
+                                    local p1 = Vector2.new(edgeX + math.cos(angle) * arrowSize, edgeY + math.sin(angle) * arrowSize)
+                                    local p2 = Vector2.new(edgeX + math.cos(angle + 2.4) * arrowSize * 0.5, edgeY + math.sin(angle + 2.4) * arrowSize * 0.5)
+                                    local p3 = Vector2.new(edgeX + math.cos(angle - 2.4) * arrowSize * 0.5, edgeY + math.sin(angle - 2.4) * arrowSize * 0.5)
+                                    DrawingImmediate.FilledTriangle(p1, p2, p3, G.ESPColor or BABY_PINK, 1)
+                                    DrawingImmediate.Text(Vector2.new(edgeX, edgeY + 10), DrawingImmediate.Fonts.Monospace, 9, WHITE, 1, string.format("%.0fm", dist), true)
                                 end
                             end
                         end
@@ -1962,6 +2444,12 @@ resolverSection:CreateSlider({
     Callback = function(v) G.DivineLuaBIASAngle = math.rad(v) end
 })
 
+resolverSection:CreateToggle({
+    Name = "Per-Enemy Resolver Mode",
+    State = false,
+    Callback = function(v) G.ResolverModePerEnemy = v end
+})
+
 -- Weapon section
 local weaponSection = combatPage:CreateSection({ Name = "WEAPON", Size = 200, Side = "Right" })
 
@@ -2059,6 +2547,61 @@ aaGeneralSection:CreateButton({
     end
 })
 
+aaGeneralSection:CreateButton({
+    Name = "Apply Golden Ratio",
+    Callback = function()
+        G.AntiAimEnabled = true
+        G.UnhittableEngine = false
+        G.TrueRandomAA = false
+        G.GoldenRatioEnabled = true
+        G.MultiPoleEnabled = false
+        G.FrequencySweepEnabled = false
+        G.CompoundDesyncEnabled = false
+        G.StutteredStaticEnabled = false
+        G.GrayZoneEnabled = false
+        G.ResolverBaitEnabled = false
+        G.AdaptiveAAEnabled = false
+        print("[V2] Golden Ratio enabled")
+    end
+})
+
+aaGeneralSection:CreateButton({
+    Name = "Apply Multi-Pole (3)",
+    Callback = function()
+        G.AntiAimEnabled = true
+        G.UnhittableEngine = false
+        G.TrueRandomAA = false
+        G.GoldenRatioEnabled = false
+        G.MultiPoleEnabled = true
+        G.MultiPoleCount = 3
+        G.FrequencySweepEnabled = false
+        G.CompoundDesyncEnabled = false
+        G.StutteredStaticEnabled = false
+        G.GrayZoneEnabled = false
+        G.ResolverBaitEnabled = false
+        G.AdaptiveAAEnabled = false
+        print("[V2] Multi-Pole 3 enabled")
+    end
+})
+
+aaGeneralSection:CreateButton({
+    Name = "Apply Compound Desync",
+    Callback = function()
+        G.AntiAimEnabled = true
+        G.UnhittableEngine = false
+        G.TrueRandomAA = false
+        G.GoldenRatioEnabled = false
+        G.MultiPoleEnabled = false
+        G.FrequencySweepEnabled = false
+        G.CompoundDesyncEnabled = true
+        G.StutteredStaticEnabled = false
+        G.GrayZoneEnabled = false
+        G.ResolverBaitEnabled = false
+        G.AdaptiveAAEnabled = false
+        print("[V2] Compound Desync enabled")
+    end
+})
+
 local unhittablePresetOptions = presetNames
 aaGeneralSection:CreateDropdown({
     Name = "Unhittable Preset",
@@ -2076,7 +2619,90 @@ aaGeneralSection:CreateToggle({
 aaGeneralSection:CreateToggle({
     Name = "True Random",
     State = false,
-    Callback = function(v) G.TrueRandomAA = v end
+    Callback = function(v)
+        G.TrueRandomAA = v
+        if v then G.GoldenRatioEnabled = false; G.MultiPoleEnabled = false; G.FrequencySweepEnabled = false; G.CompoundDesyncEnabled = false; G.StutteredStaticEnabled = false; G.GrayZoneEnabled = false; G.ResolverBaitEnabled = false; G.AdaptiveAAEnabled = false end
+    end
+})
+
+aaGeneralSection:CreateToggle({
+    Name = "Golden Ratio Jitter",
+    State = false,
+    Callback = function(v)
+        G.GoldenRatioEnabled = v
+        if v then G.TrueRandomAA = false; G.MultiPoleEnabled = false; G.FrequencySweepEnabled = false; G.CompoundDesyncEnabled = false; G.StutteredStaticEnabled = false; G.GrayZoneEnabled = false; G.ResolverBaitEnabled = false; G.AdaptiveAAEnabled = false end
+    end
+})
+
+aaGeneralSection:CreateToggle({
+    Name = "Multi-Pole Jitter",
+    State = false,
+    Callback = function(v)
+        G.MultiPoleEnabled = v
+        if v then G.TrueRandomAA = false; G.GoldenRatioEnabled = false; G.FrequencySweepEnabled = false; G.CompoundDesyncEnabled = false; G.StutteredStaticEnabled = false; G.GrayZoneEnabled = false; G.ResolverBaitEnabled = false; G.AdaptiveAAEnabled = false end
+    end
+})
+
+local mpoleOptions = {"3-Pole", "4-Pole", "5-Pole"}
+aaGeneralSection:CreateDropdown({
+    Name = "Pole Count",
+    Options = mpoleOptions,
+    State = 1,
+    Callback = function(idx) G.MultiPoleCount = idx + 2 end
+})
+
+aaGeneralSection:CreateToggle({
+    Name = "Frequency Sweep",
+    State = false,
+    Callback = function(v)
+        G.FrequencySweepEnabled = v
+        if v then G.TrueRandomAA = false; G.GoldenRatioEnabled = false; G.MultiPoleEnabled = false; G.CompoundDesyncEnabled = false; G.StutteredStaticEnabled = false; G.GrayZoneEnabled = false; G.ResolverBaitEnabled = false; G.AdaptiveAAEnabled = false end
+    end
+})
+
+aaGeneralSection:CreateToggle({
+    Name = "Compound Desync",
+    State = false,
+    Callback = function(v)
+        G.CompoundDesyncEnabled = v
+        if v then G.TrueRandomAA = false; G.GoldenRatioEnabled = false; G.MultiPoleEnabled = false; G.FrequencySweepEnabled = false; G.StutteredStaticEnabled = false; G.GrayZoneEnabled = false; G.ResolverBaitEnabled = false; G.AdaptiveAAEnabled = false end
+    end
+})
+
+aaGeneralSection:CreateToggle({
+    Name = "Stuttered Static",
+    State = false,
+    Callback = function(v)
+        G.StutteredStaticEnabled = v
+        if v then G.TrueRandomAA = false; G.GoldenRatioEnabled = false; G.MultiPoleEnabled = false; G.FrequencySweepEnabled = false; G.CompoundDesyncEnabled = false; G.GrayZoneEnabled = false; G.ResolverBaitEnabled = false; G.AdaptiveAAEnabled = false end
+    end
+})
+
+aaGeneralSection:CreateToggle({
+    Name = "Gray Zone Dodge",
+    State = false,
+    Callback = function(v)
+        G.GrayZoneEnabled = v
+        if v then G.TrueRandomAA = false; G.GoldenRatioEnabled = false; G.MultiPoleEnabled = false; G.FrequencySweepEnabled = false; G.CompoundDesyncEnabled = false; G.StutteredStaticEnabled = false; G.ResolverBaitEnabled = false; G.AdaptiveAAEnabled = false end
+    end
+})
+
+aaGeneralSection:CreateToggle({
+    Name = "Resolver Bait",
+    State = false,
+    Callback = function(v)
+        G.ResolverBaitEnabled = v
+        if v then G.TrueRandomAA = false; G.GoldenRatioEnabled = false; G.MultiPoleEnabled = false; G.FrequencySweepEnabled = false; G.CompoundDesyncEnabled = false; G.StutteredStaticEnabled = false; G.GrayZoneEnabled = false; G.AdaptiveAAEnabled = false end
+    end
+})
+
+aaGeneralSection:CreateToggle({
+    Name = "Adaptive (Anti-Hit)",
+    State = false,
+    Callback = function(v)
+        G.AdaptiveAAEnabled = v
+        if v then G.TrueRandomAA = false; G.GoldenRatioEnabled = false; G.MultiPoleEnabled = false; G.FrequencySweepEnabled = false; G.CompoundDesyncEnabled = false; G.StutteredStaticEnabled = false; G.GrayZoneEnabled = false; G.ResolverBaitEnabled = false end
+    end
 })
 
 -- Angles section
@@ -2166,6 +2792,30 @@ aaExtraSection:CreateSlider({
     Callback = function(v) G.UnhittableFlipDelay = v / 1000 end
 })
 
+aaExtraSection:CreateToggle({
+    Name = "Asymmetric Poles",
+    State = false,
+    Callback = function(v) G.AAAsymmetricPoles = v end
+})
+
+aaExtraSection:CreateToggle({
+    Name = "Micro Noise Layer",
+    State = false,
+    Callback = function(v) G.AAMicroNoise = v end
+})
+
+aaExtraSection:CreateToggle({
+    Name = "Per-Shot Pitch Random",
+    State = false,
+    Callback = function(v) G.AAPerShotPitch = v end
+})
+
+aaExtraSection:CreateToggle({
+    Name = "Dynamic Hitpart",
+    State = false,
+    Callback = function(v) G.DynamicHitpart = v end
+})
+
 ------------------------------------------------------------------------
 -- 21c. VISUALS PAGE
 ------------------------------------------------------------------------
@@ -2218,6 +2868,54 @@ espSection:CreateColorpicker({
     Name = "ESP Color",
     State = Color3.fromRGB(255, 161, 232),
     Callback = function(color) G.ESPColor = color end
+})
+
+espSection:CreateToggle({
+    Name = "Skeleton",
+    State = false,
+    Callback = function(v) G.ESPSkeleton = v end
+})
+
+espSection:CreateColorpicker({
+    Name = "Skeleton Color",
+    State = Color3.fromRGB(255, 161, 232),
+    Callback = function(color) G.ESPSkeletonColor = color end
+})
+
+espSection:CreateToggle({
+    Name = "Velocity Arrow",
+    State = false,
+    Callback = function(v) G.ESPVelArrow = v end
+})
+
+espSection:CreateToggle({
+    Name = "AA Angle Indicator",
+    State = false,
+    Callback = function(v) G.ESPAAIndicator = v end
+})
+
+espSection:CreateToggle({
+    Name = "Hit Chance",
+    State = false,
+    Callback = function(v) G.ESPHitChance = v end
+})
+
+espSection:CreateToggle({
+    Name = "Off-Screen Arrows",
+    State = false,
+    Callback = function(v) G.ESPOffScreen = v end
+})
+
+espSection:CreateToggle({
+    Name = "FOV Circle",
+    State = false,
+    Callback = function(v) G.ESPFOVCircle = v end
+})
+
+espSection:CreateSlider({
+    Name = "FOV Radius",
+    State = 200, Min = 50, Max = 500, Step = 10,
+    Callback = function(v) G.ESPFOVRadius = v end
 })
 
 -- Chams section
@@ -2351,6 +3049,84 @@ miscExploitsSection:CreateToggle({
     Callback = function(v) G.AutoRejoin = v end
 })
 
+miscExploitsSection:CreateToggle({
+    Name = "Smart Rejoin",
+    State = false,
+    Callback = function(v) G.AutoRejoinSmart = v end
+})
+
+miscExploitsSection:CreateSlider({
+    Name = "Rejoin Delay",
+    State = 5, Min = 0, Max = 10, Step = 1, Suffix = "ms",
+    Callback = function(v) G.AutoRejoinDelay = v / 1000 end
+})
+
+-- QOL Section
+local qolSection = miscPage:CreateSection({ Name = "QOL", Size = 250, Side = "Left" })
+
+qolSection:CreateToggle({
+    Name = "Watermark",
+    State = true,
+    Callback = function(v) G.WatermarkEnabled = v end
+})
+
+qolSection:CreateToggle({
+    Name = "Custom Crosshair",
+    State = false,
+    Callback = function(v) G.CrosshairEnabled = v end
+})
+
+qolSection:CreateSlider({
+    Name = "Crosshair Size",
+    State = 6, Min = 2, Max = 20, Step = 1,
+    Callback = function(v) G.CrosshairSize = v end
+})
+
+qolSection:CreateSlider({
+    Name = "Crosshair Gap",
+    State = 4, Min = 1, Max = 15, Step = 1,
+    Callback = function(v) G.CrosshairGap = v end
+})
+
+qolSection:CreateColorpicker({
+    Name = "Crosshair Color",
+    State = Color3.fromRGB(255, 255, 255),
+    Callback = function(color) G.CrosshairColor = color end
+})
+
+-- Config Section
+local configSection = miscPage:CreateSection({ Name = "CONFIG", Size = 150, Side = "Right" })
+
+configSection:CreateButton({
+    Name = "Save Config",
+    Callback = function()
+        pcall(function()
+            local cfg = {}
+            for k, v in pairs(G) do
+                if type(v) == "boolean" or type(v) == "number" or type(v) == "string" then
+                    cfg[k] = v
+                end
+            end
+            writefile("neverhit_config.json", game:GetService("HttpService"):JSONEncode(cfg))
+            notify("NeverHit V2", "Config saved!", 2)
+        end)
+    end
+})
+
+configSection:CreateButton({
+    Name = "Load Config",
+    Callback = function()
+        pcall(function()
+            local raw = readfile("neverhit_config.json")
+            local cfg = game:GetService("HttpService"):JSONDecode(raw)
+            for k, v in pairs(cfg) do
+                G[k] = v
+            end
+            notify("NeverHit V2", "Config loaded!", 2)
+        end)
+    end
+})
+
 -- Info section
 local infoSection = miscPage:CreateSection({ Name = "INFO", Size = 150, Side = "Right" })
 
@@ -2376,16 +3152,183 @@ infoSection:CreateButton({
 })
 
 ------------------------------------------------------------------------
--- 22. AUTO-REJOIN
+-- 22. AUTO-REJOIN (improved with cooldown + smart mode)
 ------------------------------------------------------------------------
 
-game:GetService("GuiService").ErrorMessageChanged:Connect(function()
+local function handleAutoRejoin()
     if not G.AutoRejoin then return end
-    task.wait(0.5)
+    if G.PanicEnabled then return end
+
+    local now = os.clock()
+    local cooldown = G.AutoRejoinDelay or 0.5
+
+    if G.AutoRejoinSmart then
+        if now - G.LastRejoinTime < 5 then
+            G.RejoinCount = G.RejoinCount + 1
+        else
+            G.RejoinCount = 1
+        end
+        G.LastRejoinTime = now
+        if G.RejoinCount >= 3 then
+            notify("NeverHit V2", "Too many rejoins — waiting 60s", 4)
+            task.wait(60)
+            G.RejoinCount = 0
+        end
+    end
+
+    task.wait(cooldown)
+    if not G.AutoRejoin then return end
     pcall(function()
         game:GetService("TeleportService"):Teleport(game.PlaceId, LocalPlayer)
     end)
+end
+
+game:GetService("GuiService").ErrorMessageChanged:Connect(handleAutoRejoin)
+
+------------------------------------------------------------------------
+-- 22b. SESSION STATS
+------------------------------------------------------------------------
+
+G.SessionStats = {
+    shotsFired = 0,
+    estimatedHits = 0,
+    startTime = os.clock(),
+    modeBreakdown = {},
+    lastShotTime = 0,
+}
+
+------------------------------------------------------------------------
+-- 22c. KEYBIND SYSTEM
+------------------------------------------------------------------------
+
+local keybindMap = {}
+
+local function registerKeybind(keyCode, callback)
+    keybindMap[keyCode] = callback
+end
+
+game:GetService("UserInputService").InputBegan:Connect(function(input, gp)
+    if gp then return end
+    if keybindMap[input.KeyCode] then
+        pcall(keybindMap[input.KeyCode])
+    end
 end)
+
+-- Panic Key (F6)
+registerKeybind(Enum.KeyCode.F6, function()
+    G.PanicEnabled = not G.PanicEnabled
+    if G.PanicEnabled then
+        G.RageBotEnabled = false
+        G.AntiAimEnabled = false
+        G.ESPEnabled = false
+        G.ESPChamsEnabled = false
+        G.ChinaHat = false
+        G.UnhittableEngine = false
+        G.TrueRandomAA = false
+        G.GoldenRatioEnabled = false
+        G.MultiPoleEnabled = false
+        G.FrequencySweepEnabled = false
+        G.CompoundDesyncEnabled = false
+        G.StutteredStaticEnabled = false
+        G.GrayZoneEnabled = false
+        G.ResolverBaitEnabled = false
+        G.AdaptiveAAEnabled = false
+        notify("NeverHit V2", "SAFE MODE ACTIVATED", 3)
+    else
+        notify("NeverHit V2", "Safe mode deactivated", 2)
+    end
+end)
+
+------------------------------------------------------------------------
+-- 22d. WATERMARK
+------------------------------------------------------------------------
+
+task.spawn(function()
+    local wmGui = Instance.new("ScreenGui")
+    wmGui.Name = "NeverHitWatermark"
+    wmGui.ResetOnSpawn = false
+    wmGui.IgnoreGuiInset = true
+    wmGui.DisplayOrder = 997
+    wmGui.Parent = PlayerGui
+
+    local wmFrame = Instance.new("Frame")
+    wmFrame.Size = UDim2.new(0, 200, 0, 22)
+    wmFrame.Position = UDim2.new(1, -210, 0, 8)
+    wmFrame.BackgroundColor3 = BG
+    wmFrame.BackgroundTransparency = 0.3
+    wmFrame.BorderSizePixel = 0
+    wmFrame.Parent = wmGui
+
+    local wmStroke = Instance.new("UIStroke")
+    wmStroke.Color = Color3.fromRGB(40, 40, 40)
+    wmStroke.Thickness = 1
+    wmStroke.Parent = wmFrame
+
+    local wmText = Instance.new("TextLabel")
+    wmText.Size = UDim2.new(1, -10, 1, 0)
+    wmText.Position = UDim2.new(0, 5, 0, 0)
+    wmText.BackgroundTransparency = 1
+    wmText.Text = "NeverHit V2"
+    wmText.TextColor3 = TEXT
+    wmText.TextSize = 10
+    wmText.Font = Enum.Font.Code
+    wmText.TextXAlignment = Enum.TextXAlignment.Left
+    wmText.Parent = wmFrame
+
+    RunService.RenderStepped:Connect(function(dt)
+        if not G.WatermarkEnabled or G.PanicEnabled then
+            wmGui.Enabled = false
+            return
+        end
+        wmGui.Enabled = true
+
+        local fps = math.floor(1 / dt)
+        local ping = math.floor(LocalPlayer:GetNetworkPing() * 1000)
+        local elapsed = math.floor(os.clock() - G.SessionStats.startTime)
+        local mins = math.floor(elapsed / 60)
+        local secs = elapsed % 60
+
+        local features = ""
+        if G.RageBotEnabled then features = features .. "R " end
+        if G.AntiAimEnabled then features = features .. "AA " end
+        if G.ESPEnabled then features = features .. "E " end
+        if G.CustomResolverEnabled then features = features .. "RS " end
+
+        wmText.Text = string.format("NeverHit V2 | %dfps | %dms | %02d:%02d | %s", fps, ping, mins, secs, features)
+    end)
+end)
+
+------------------------------------------------------------------------
+-- 22e. CROSSHAIR
+------------------------------------------------------------------------
+
+task.spawn(function()
+    RunService.RenderStepped:Connect(function()
+        if not G.CrosshairEnabled or G.PanicEnabled then return end
+        pcall(function()
+            local center = Camera.ViewportSize / 2
+            local size = G.CrosshairSize or 6
+            local gap = G.CrosshairGap or 4
+            local thick = G.CrosshairThickness or 1
+            local col = G.CrosshairColor or WHITE
+
+            DrawingImmediate.Line(Vector2.new(center.X - gap - size, center.Y), Vector2.new(center.X - gap, center.Y), col, thick, 1)
+            DrawingImmediate.Line(Vector2.new(center.X + gap, center.Y), Vector2.new(center.X + gap + size, center.Y), col, thick, 1)
+            DrawingImmediate.Line(Vector2.new(center.X, center.Y - gap - size), Vector2.new(center.X, center.Y - gap), col, thick, 1)
+            DrawingImmediate.Line(Vector2.new(center.X, center.Y + gap), Vector2.new(center.X, center.Y + gap + size), col, thick, 1)
+        end)
+    end)
+end)
+
+------------------------------------------------------------------------
+-- 22f. FORCE HIT TRACKING (for session stats + dynamic hitpart)
+------------------------------------------------------------------------
+
+------------------------------------------------------------------------
+-- 22g. AUTO MODE SWITCHING
+------------------------------------------------------------------------
+
+local lastShootTime = 0
 
 ------------------------------------------------------------------------
 -- 23. CLEANUP
