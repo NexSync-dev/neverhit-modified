@@ -421,16 +421,17 @@ local function aaRandom()
     return splitmix()
 end
 
-local cipherCache = { key = false, enc = nil, decPat = nil, decLookup = nil }
+local cipherCache = { ready = false, enc = nil, decPat = nil, decLookup = nil }
 
 local function getCipher()
+    if cipherCache.ready then return cipherCache.enc end
     local ok, imgLabel = pcall(function()
         return game:GetService("TextChatService").BubbleChatConfiguration:FindFirstChild("ImageLabel")
     end)
     if not ok or not imgLabel then return nil end
     local key = imgLabel:GetAttribute("SuperSecretKey")
     if type(key) ~= "string" or key == "" then return nil end
-    if cipherCache.key == key then return cipherCache.enc end
+    if cipherCache.ready then return cipherCache.enc end
 
     local s, data = pcall(game:GetService("HttpService").JSONDecode, game:GetService("HttpService"), key)
     if not s or type(data) ~= "table" then return nil end
@@ -454,7 +455,7 @@ local function getCipher()
         pats[i] = junk:gsub("([^%w])", "%%%1")
     end
 
-    cipherCache.key = key
+    cipherCache.ready = true
     cipherCache.enc = enc
     cipherCache.decLookup = decLookup
     cipherCache.decPat = #pats > 0 and table.concat(pats, "|") or nil
@@ -465,12 +466,12 @@ local function encryptstring(text)
     if type(text) ~= "string" then return text end
     local enc = getCipher()
     if not enc then return text end
-    local result = {}
+    local out = {}
     for i = 1, #text do
-        local char = text:sub(i, i)
-        result[i] = enc[char] or char
+        local c = text:byte(i)
+        out[i] = enc[text:sub(i, i)] or text:sub(i, i)
     end
-    return table.concat(result)
+    return table.concat(out)
 end
 
 local function decryptstring(text)
@@ -497,38 +498,30 @@ local function globalexists(name)
     return false
 end
 
-local function GetClosestPlayer()
+local function ResolvePlayer()
     local myRoot = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-    if not myRoot then return nil end
-    local best, bestDist = nil, math.huge
-    for _, plr in ipairs(Players:GetPlayers()) do
-        if plr ~= LocalPlayer and plr.Character then
-            local hrp = plr.Character:FindFirstChild("HumanoidRootPart")
-            local hum = plr.Character:FindFirstChildOfClass("Humanoid")
-            if hrp and hum and hum.Health > 0 then
-                local d = (hrp.Position - myRoot.Position).Magnitude
-                if d < bestDist then bestDist = d; best = plr end
-            end
-        end
-    end
-    return best
-end
-
-local function GetCrosshairTarget()
     local camCF = Camera.CFrame
-    local best, bestDot = nil, 0.95
+    local bestCrosshair, bestDot = nil, 0.95
+    local bestClosest, bestDist = nil, math.huge
     for _, plr in ipairs(Players:GetPlayers()) do
         if plr ~= LocalPlayer and plr.Character then
             local hrp = plr.Character:FindFirstChild("HumanoidRootPart")
-            local hum = plr.Character:FindFirstChildOfClass("Humanoid")
+            local hum = hrp and plr.Character:FindFirstChild("Humanoid")
             if hrp and hum and hum.Health > 0 then
-                local dir = (hrp.Position - camCF.Position).Unit
-                local dot = camCF.LookVector:Dot(dir)
-                if dot > bestDot then bestDot = dot; best = plr end
+                local pos = hrp.Position
+                if myRoot then
+                    local d = (pos - myRoot.Position).Magnitude
+                    if d < bestDist then bestDist = d; bestClosest = plr end
+                end
+                if camCF then
+                    local dir = (pos - camCF.Position).Unit
+                    local dot = camCF.LookVector:Dot(dir)
+                    if dot > bestDot then bestDot = dot; bestCrosshair = plr end
+                end
             end
         end
     end
-    return best
+    return bestClosest, bestCrosshair
 end
 
 local function resolveDesyncPart(target, aimPos)
@@ -714,21 +707,6 @@ local function disabledefaultragebot()
     end
 end
 
-local function findTargetAtPos(pos)
-    local best, bestDist = nil, math.huge
-    for _, plr in ipairs(Players:GetPlayers()) do
-        if plr ~= LocalPlayer and plr.Character then
-            local hrp = plr.Character:FindFirstChild("HumanoidRootPart")
-            local hum = plr.Character:FindFirstChildOfClass("Humanoid")
-            if hrp and hum and hum.Health > 0 then
-                local d = (hrp.Position - pos).Magnitude
-                if d < bestDist then best = plr; bestDist = d end
-            end
-        end
-    end
-    return best
-end
-
 do
     if globalexists("hookmetamethod") then
         local cachedMainEvent = game:GetService("ReplicatedStorage"):FindFirstChild("MainEvent")
@@ -767,10 +745,12 @@ do
 
                     if HitPos == "Auto" and preferAuto then
                         aimPos = targetPos
-                        target = findTargetAtPos(aimPos) or GetCrosshairTarget()
+                        local _, crosshair = ResolvePlayer()
+                        target = crosshair
                         partName = GetPartNameAtPos(aimPos, origin)
                     else
-                        target = GetCrosshairTarget()
+                        local _, crosshair = ResolvePlayer()
+                        target = crosshair
                         if target and target.Character then
                             local char = target.Character
                             local partNameLookup = HitPos == "Auto" and "Head" or HitPos
@@ -1093,20 +1073,8 @@ task.spawn(function()
     end
 
     local function getClosest()
-        local myRoot = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-        if not myRoot then return nil end
-        local best, bestDist = nil, math.huge
-        for _, plr in ipairs(Players:GetPlayers()) do
-            if plr ~= LocalPlayer and plr.Character then
-                local hrp = plr.Character:FindFirstChild("HumanoidRootPart")
-                local hum = plr.Character:FindFirstChildOfClass("Humanoid")
-                if hrp and hum and hum.Health > 0 then
-                    local d = (hrp.Position - myRoot.Position).Magnitude
-                    if d < bestDist then best = plr; bestDist = d end
-                end
-            end
-        end
-        return best
+        local closest = select(1, ResolvePlayer())
+        return closest
     end
 
     local function pushSample(plr)
@@ -1124,26 +1092,14 @@ task.spawn(function()
         for _, v in ipairs({...}) do
             local s = decryptstring(tostring(v))
             if s:lower():find("missed due to") then
-                local myRoot = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-                if myRoot then
-                    local best, bestDist = nil, math.huge
-                    for _, plr in ipairs(Players:GetPlayers()) do
-                        if plr ~= LocalPlayer and plr.Character then
-                            local hrp = plr.Character:FindFirstChild("HumanoidRootPart")
-                            local hum = plr.Character:FindFirstChildOfClass("Humanoid")
-                            if hrp and hum and hum.Health > 0 then
-                                local d = (hrp.Position - myRoot.Position).Magnitude
-                                if d < bestDist then bestDist = d; best = plr end
-                            end
-                        end
-                    end
-                    if best then
-                        missCounter[best] = (missCounter[best] or 0) + 1
-                        lockedYaw[best] = nil
-                        resolvedYaw[best] = nil
-                        lastMissed[best] = true
-                        confidence[best] = math.max((confidence[best] or 1) - 0.3, 0)
-                    end
+                local best = select(1, ResolvePlayer())
+                if best then
+                    missCounter[best] = (missCounter[best] or 0) + 1
+                    lockedYaw[best] = nil
+                    resolvedYaw[best] = nil
+                    lastMissed[best] = true
+                    confidence[best] = math.max((confidence[best] or 1) - 0.3, 0)
+                end
                 end
             end
         end
