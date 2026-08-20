@@ -1100,7 +1100,6 @@ task.spawn(function()
                     lastMissed[best] = true
                     confidence[best] = math.max((confidence[best] or 1) - 0.3, 0)
                 end
-                end
             end
         end
     end
