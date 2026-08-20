@@ -2507,7 +2507,7 @@ end)
 -- 21b. ANTI-AIM PAGE
 ------------------------------------------------------------------------
 
-local aaGeneralSection = aaPage:CreateSection({ Name = "GENERAL", Size = 300, Side = "Left" })
+local aaGeneralSection = aaPage:CreateSection({ Name = "MODE", Size = 300, Side = "Left" })
 
 aaGeneralSection:CreateToggle({
     Name = "Enable Anti-Aim",
@@ -2515,17 +2515,51 @@ aaGeneralSection:CreateToggle({
     Callback = function(v) G.AntiAimEnabled = v end
 })
 
-local aaModes = {"Static", "Offset", "Center", "3-Way", "5-Way", "Off"}
+local aaModeList = {
+    "Manual (Static)", "Manual (Offset)", "Manual (Center)", "Manual (3-Way)", "Manual (5-Way)",
+    "True Random", "Golden Ratio", "Multi-Pole", "Frequency Sweep",
+    "Compound Desync", "Stuttered Static", "Gray Zone", "Resolver Bait", "Adaptive (Anti-Hit)",
+    "Unhittable Engine"
+}
+
+local function DisableAllAAModes()
+    G.TrueRandomAA = false
+    G.GoldenRatioEnabled = false
+    G.MultiPoleEnabled = false
+    G.FrequencySweepEnabled = false
+    G.CompoundDesyncEnabled = false
+    G.StutteredStaticEnabled = false
+    G.GrayZoneEnabled = false
+    G.ResolverBaitEnabled = false
+    G.AdaptiveAAEnabled = false
+    G.UnhittableEngine = false
+end
+
 aaGeneralSection:CreateDropdown({
-    Name = "Mode (Manual)",
-    Options = aaModes,
+    Name = "Active Mode",
+    Options = aaModeList,
     State = 1,
     Callback = function(idx)
-        local mode = aaModes[idx]
-        G.typeofantiaim = mode
-        if mode == "Off" then
-            G.AntiAimEnabled = false
+        local mode = aaModeList[idx]
+        DisableAllAAModes()
+        G.AntiAimEnabled = true
+        if mode == "Manual (Static)" then G.typeofantiaim = "Static"
+        elseif mode == "Manual (Offset)" then G.typeofantiaim = "Offset"
+        elseif mode == "Manual (Center)" then G.typeofantiaim = "Center"
+        elseif mode == "Manual (3-Way)" then G.typeofantiaim = "3-Way"
+        elseif mode == "Manual (5-Way)" then G.typeofantiaim = "5-Way"
+        elseif mode == "True Random" then G.TrueRandomAA = true
+        elseif mode == "Golden Ratio" then G.GoldenRatioEnabled = true
+        elseif mode == "Multi-Pole" then G.MultiPoleEnabled = true
+        elseif mode == "Frequency Sweep" then G.FrequencySweepEnabled = true
+        elseif mode == "Compound Desync" then G.CompoundDesyncEnabled = true
+        elseif mode == "Stuttered Static" then G.StutteredStaticEnabled = true
+        elseif mode == "Gray Zone" then G.GrayZoneEnabled = true
+        elseif mode == "Resolver Bait" then G.ResolverBaitEnabled = true
+        elseif mode == "Adaptive (Anti-Hit)" then G.AdaptiveAAEnabled = true
+        elseif mode == "Unhittable Engine" then G.UnhittableEngine = true
         end
+        G.AAdirty = true
     end
 })
 
@@ -2537,71 +2571,6 @@ aaGeneralSection:CreateButton({
     end
 })
 
-aaGeneralSection:CreateButton({
-    Name = "Apply True Random",
-    Callback = function()
-        G.AntiAimEnabled = true
-        G.UnhittableEngine = false
-        G.TrueRandomAA = true
-        print("[V2] True Random enabled")
-    end
-})
-
-aaGeneralSection:CreateButton({
-    Name = "Apply Golden Ratio",
-    Callback = function()
-        G.AntiAimEnabled = true
-        G.UnhittableEngine = false
-        G.TrueRandomAA = false
-        G.GoldenRatioEnabled = true
-        G.MultiPoleEnabled = false
-        G.FrequencySweepEnabled = false
-        G.CompoundDesyncEnabled = false
-        G.StutteredStaticEnabled = false
-        G.GrayZoneEnabled = false
-        G.ResolverBaitEnabled = false
-        G.AdaptiveAAEnabled = false
-        print("[V2] Golden Ratio enabled")
-    end
-})
-
-aaGeneralSection:CreateButton({
-    Name = "Apply Multi-Pole (3)",
-    Callback = function()
-        G.AntiAimEnabled = true
-        G.UnhittableEngine = false
-        G.TrueRandomAA = false
-        G.GoldenRatioEnabled = false
-        G.MultiPoleEnabled = true
-        G.MultiPoleCount = 3
-        G.FrequencySweepEnabled = false
-        G.CompoundDesyncEnabled = false
-        G.StutteredStaticEnabled = false
-        G.GrayZoneEnabled = false
-        G.ResolverBaitEnabled = false
-        G.AdaptiveAAEnabled = false
-        print("[V2] Multi-Pole 3 enabled")
-    end
-})
-
-aaGeneralSection:CreateButton({
-    Name = "Apply Compound Desync",
-    Callback = function()
-        G.AntiAimEnabled = true
-        G.UnhittableEngine = false
-        G.TrueRandomAA = false
-        G.GoldenRatioEnabled = false
-        G.MultiPoleEnabled = false
-        G.FrequencySweepEnabled = false
-        G.CompoundDesyncEnabled = true
-        G.StutteredStaticEnabled = false
-        G.GrayZoneEnabled = false
-        G.ResolverBaitEnabled = false
-        G.AdaptiveAAEnabled = false
-        print("[V2] Compound Desync enabled")
-    end
-})
-
 local unhittablePresetOptions = presetNames
 aaGeneralSection:CreateDropdown({
     Name = "Unhittable Preset",
@@ -2610,99 +2579,11 @@ aaGeneralSection:CreateDropdown({
     Callback = function(idx) SetUnhittablePreset(unhittablePresetOptions[idx]) end
 })
 
-aaGeneralSection:CreateToggle({
-    Name = "Unhittable Engine",
-    State = false,
-    Callback = function(v) G.UnhittableEngine = v end
-})
-
-aaGeneralSection:CreateToggle({
-    Name = "True Random",
-    State = false,
-    Callback = function(v)
-        G.TrueRandomAA = v
-        if v then G.GoldenRatioEnabled = false; G.MultiPoleEnabled = false; G.FrequencySweepEnabled = false; G.CompoundDesyncEnabled = false; G.StutteredStaticEnabled = false; G.GrayZoneEnabled = false; G.ResolverBaitEnabled = false; G.AdaptiveAAEnabled = false end
-    end
-})
-
-aaGeneralSection:CreateToggle({
-    Name = "Golden Ratio Jitter",
-    State = false,
-    Callback = function(v)
-        G.GoldenRatioEnabled = v
-        if v then G.TrueRandomAA = false; G.MultiPoleEnabled = false; G.FrequencySweepEnabled = false; G.CompoundDesyncEnabled = false; G.StutteredStaticEnabled = false; G.GrayZoneEnabled = false; G.ResolverBaitEnabled = false; G.AdaptiveAAEnabled = false end
-    end
-})
-
-aaGeneralSection:CreateToggle({
-    Name = "Multi-Pole Jitter",
-    State = false,
-    Callback = function(v)
-        G.MultiPoleEnabled = v
-        if v then G.TrueRandomAA = false; G.GoldenRatioEnabled = false; G.FrequencySweepEnabled = false; G.CompoundDesyncEnabled = false; G.StutteredStaticEnabled = false; G.GrayZoneEnabled = false; G.ResolverBaitEnabled = false; G.AdaptiveAAEnabled = false end
-    end
-})
-
-local mpoleOptions = {"3-Pole", "4-Pole", "5-Pole"}
 aaGeneralSection:CreateDropdown({
     Name = "Pole Count",
-    Options = mpoleOptions,
+    Options = {"3-Pole", "4-Pole", "5-Pole"},
     State = 1,
     Callback = function(idx) G.MultiPoleCount = idx + 2 end
-})
-
-aaGeneralSection:CreateToggle({
-    Name = "Frequency Sweep",
-    State = false,
-    Callback = function(v)
-        G.FrequencySweepEnabled = v
-        if v then G.TrueRandomAA = false; G.GoldenRatioEnabled = false; G.MultiPoleEnabled = false; G.CompoundDesyncEnabled = false; G.StutteredStaticEnabled = false; G.GrayZoneEnabled = false; G.ResolverBaitEnabled = false; G.AdaptiveAAEnabled = false end
-    end
-})
-
-aaGeneralSection:CreateToggle({
-    Name = "Compound Desync",
-    State = false,
-    Callback = function(v)
-        G.CompoundDesyncEnabled = v
-        if v then G.TrueRandomAA = false; G.GoldenRatioEnabled = false; G.MultiPoleEnabled = false; G.FrequencySweepEnabled = false; G.StutteredStaticEnabled = false; G.GrayZoneEnabled = false; G.ResolverBaitEnabled = false; G.AdaptiveAAEnabled = false end
-    end
-})
-
-aaGeneralSection:CreateToggle({
-    Name = "Stuttered Static",
-    State = false,
-    Callback = function(v)
-        G.StutteredStaticEnabled = v
-        if v then G.TrueRandomAA = false; G.GoldenRatioEnabled = false; G.MultiPoleEnabled = false; G.FrequencySweepEnabled = false; G.CompoundDesyncEnabled = false; G.GrayZoneEnabled = false; G.ResolverBaitEnabled = false; G.AdaptiveAAEnabled = false end
-    end
-})
-
-aaGeneralSection:CreateToggle({
-    Name = "Gray Zone Dodge",
-    State = false,
-    Callback = function(v)
-        G.GrayZoneEnabled = v
-        if v then G.TrueRandomAA = false; G.GoldenRatioEnabled = false; G.MultiPoleEnabled = false; G.FrequencySweepEnabled = false; G.CompoundDesyncEnabled = false; G.StutteredStaticEnabled = false; G.ResolverBaitEnabled = false; G.AdaptiveAAEnabled = false end
-    end
-})
-
-aaGeneralSection:CreateToggle({
-    Name = "Resolver Bait",
-    State = false,
-    Callback = function(v)
-        G.ResolverBaitEnabled = v
-        if v then G.TrueRandomAA = false; G.GoldenRatioEnabled = false; G.MultiPoleEnabled = false; G.FrequencySweepEnabled = false; G.CompoundDesyncEnabled = false; G.StutteredStaticEnabled = false; G.GrayZoneEnabled = false; G.AdaptiveAAEnabled = false end
-    end
-})
-
-aaGeneralSection:CreateToggle({
-    Name = "Adaptive (Anti-Hit)",
-    State = false,
-    Callback = function(v)
-        G.AdaptiveAAEnabled = v
-        if v then G.TrueRandomAA = false; G.GoldenRatioEnabled = false; G.MultiPoleEnabled = false; G.FrequencySweepEnabled = false; G.CompoundDesyncEnabled = false; G.StutteredStaticEnabled = false; G.GrayZoneEnabled = false; G.ResolverBaitEnabled = false end
-    end
 })
 
 -- Angles section
