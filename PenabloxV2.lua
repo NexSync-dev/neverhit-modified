@@ -2589,7 +2589,7 @@ local function DisableAllAAModes()
     G.UnhittableEngine = false
 end
 
-aaGeneralSection:CreateDropdown({
+UIRefs.activeMode = aaGeneralSection:CreateDropdown({
     Name = "Active Mode",
     Options = aaModeList,
     State = 1,
@@ -3138,6 +3138,31 @@ SyncUIFromGlobals = function()
     sync(function() if UIRefs.perShotPitch then UIRefs.perShotPitch:Set(G.AAPerShotPitch) end end)
     sync(function() if UIRefs.baseYawHook then UIRefs.baseYawHook:Set(G.BaseYawHookEnabled) end end)
     sync(function() if UIRefs.trueRandom then UIRefs.trueRandom:Set(G.TrueRandomAA) end end)
+    sync(function()
+        if UIRefs.activeMode then
+            local modeIdx = 1
+            if G.TrueRandomAA then modeIdx = 6
+            elseif G.GoldenRatioEnabled then modeIdx = 7
+            elseif G.MultiPoleEnabled then modeIdx = 8
+            elseif G.FrequencySweepEnabled then modeIdx = 9
+            elseif G.CompoundDesyncEnabled then modeIdx = 10
+            elseif G.StutteredStaticEnabled then modeIdx = 11
+            elseif G.GrayZoneEnabled then modeIdx = 12
+            elseif G.ResolverBaitEnabled then modeIdx = 13
+            elseif G.AdaptiveAAEnabled then modeIdx = 14
+            elseif G.UnhittableEngine then modeIdx = 15
+            else
+                local m = G.typeofantiaim or "Static"
+                if m == "Static" then modeIdx = 1
+                elseif m == "Offset" then modeIdx = 2
+                elseif m == "Center" then modeIdx = 3
+                elseif m == "3-Way" then modeIdx = 4
+                elseif m == "5-Way" then modeIdx = 5
+                end
+            end
+            UIRefs.activeMode:Set(modeIdx)
+        end
+    end)
 end
 
 local presetHelperSection = presetPage:CreateSection({ Name = "INFO", Size = 160, Side = "Left" })
@@ -3169,7 +3194,6 @@ tryhardSection:CreateButton({
             antiaimdelayness = 0,
             RageBotAutoPrediction = true,
             HumanizeHitPos = true,
-            CustomResolverEnabled = true,
         })
         notify("NeverHit V2", "Preset: Braindead loaded", 2)
     end
@@ -3190,7 +3214,6 @@ tryhardSection:CreateButton({
             BaseYawantiaim = 0,
             RageBotAutoPrediction = true,
             HumanizeHitPos = true,
-            CustomResolverEnabled = true,
         })
         notify("NeverHit V2", "Preset: Comp Stomper loaded", 2)
     end
@@ -3201,9 +3224,6 @@ tryhardSection:CreateButton({
     Callback = function()
         ApplyPreset({
             ResolverBaitEnabled = true,
-            CustomResolverEnabled = true,
-            ResolverModePerEnemy = true,
-            DivineLuaCorrection = true,
             AAMicroNoise = true,
             BodyYawantiaim = 55,
             Pitchantiaim = -60,
@@ -3231,8 +3251,6 @@ tryhardSection:CreateButton({
             antiaimdelayness = 0,
             RageBotAutoPrediction = true,
             HumanizeHitPos = true,
-            CustomResolverEnabled = true,
-            DivineLuaCorrection = true,
         })
         notify("NeverHit V2", "Preset: Adaptive Sweat loaded", 2)
     end
@@ -3253,7 +3271,6 @@ tryhardSection:CreateButton({
             antiaimdelayness = 0,
             RageBotAutoPrediction = true,
             HumanizeHitPos = true,
-            CustomResolverEnabled = true,
         })
         notify("NeverHit V2", "Preset: Golden Sweat loaded", 2)
     end
@@ -3276,7 +3293,6 @@ casualSection:CreateButton({
             antiaimrandomness = 0,
             RageBotAutoPrediction = true,
             HumanizeHitPos = true,
-            CustomResolverEnabled = true,
         })
         notify("NeverHit V2", "Preset: Old School NH loaded", 2)
     end
@@ -3295,7 +3311,6 @@ casualSection:CreateButton({
             antiaimdelayness = 0,
             RageBotAutoPrediction = true,
             HumanizeHitPos = true,
-            CustomResolverEnabled = true,
         })
         notify("NeverHit V2", "Preset: Low FPS loaded", 2)
     end
@@ -3315,7 +3330,6 @@ casualSection:CreateButton({
             antiaimdelayness = 0,
             RageBotAutoPrediction = true,
             HumanizeHitPos = true,
-            CustomResolverEnabled = true,
         })
         notify("NeverHit V2", "Preset: Gray Zone loaded", 2)
     end
@@ -3335,7 +3349,6 @@ casualSection:CreateButton({
             antiaimdelayness = 0,
             RageBotAutoPrediction = true,
             HumanizeHitPos = true,
-            CustomResolverEnabled = true,
         })
         notify("NeverHit V2", "Preset: Freq Sweeper loaded", 2)
     end
@@ -3356,7 +3369,6 @@ casualSection:CreateButton({
             antiaimdelayness = 0,
             RageBotAutoPrediction = true,
             HumanizeHitPos = true,
-            CustomResolverEnabled = true,
         })
         notify("NeverHit V2", "Preset: Multi-Pole 5 loaded", 2)
     end
@@ -3375,7 +3387,6 @@ casualSection:CreateButton({
             AAMicroNoise = true,
             RageBotAutoPrediction = true,
             HumanizeHitPos = true,
-            CustomResolverEnabled = true,
         })
         notify("NeverHit V2", "Preset: Full Unhittable loaded", 2)
     end
