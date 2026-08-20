@@ -283,6 +283,11 @@ G.ChinaHatSegments = G.ChinaHatSegments or 8
 G.ChinaHatRadius = G.ChinaHatRadius or 55
 G.ChinaHatFollowTop = G.ChinaHatFollowTop or false
 
+G.FlightEnabled = G.FlightEnabled or false
+G.FlightSpeed = G.FlightSpeed or 60
+G.NoclipEnabled = G.NoclipEnabled or false
+G.NoclipFlightEnabled = G.NoclipFlightEnabled or false
+
 G.RemoveVelocity = G.RemoveVelocity or false
 G.RemoveMathRandom = G.RemoveMathRandom or false
 G.InfiniteAmmo = G.InfiniteAmmo or false
@@ -2460,6 +2465,77 @@ end
 
 task.spawn(NeverHitDrawEngine)
 
+do
+    local UIS = game:GetService("UserInputService")
+    local moveW, moveA, moveS, moveD = false, false, false, false
+    local moveUp, moveDown = false, false
+
+    UIS.InputBegan:Connect(function(input, gpe)
+        if gpe then return end
+        local k = input.KeyCode
+        if k == Enum.KeyCode.W then moveW = true
+        elseif k == Enum.KeyCode.A then moveA = true
+        elseif k == Enum.KeyCode.S then moveS = true
+        elseif k == Enum.KeyCode.D then moveD = true
+        elseif k == Enum.KeyCode.Space then moveUp = true
+        elseif k == Enum.KeyCode.LeftShift then moveDown = true
+        end
+    end)
+
+    UIS.InputEnded:Connect(function(input)
+        local k = input.KeyCode
+        if k == Enum.KeyCode.W then moveW = false
+        elseif k == Enum.KeyCode.A then moveA = false
+        elseif k == Enum.KeyCode.S then moveS = false
+        elseif k == Enum.KeyCode.D then moveD = false
+        elseif k == Enum.KeyCode.Space then moveUp = false
+        elseif k == Enum.KeyCode.LeftShift then moveDown = false
+        end
+    end)
+
+    RunService.Heartbeat:Connect(function(dt)
+        local ok, err = pcall(function()
+            local char = LocalPlayer.Character
+            local hrp = char and char:FindFirstChild("HumanoidRootPart")
+            local hum = char and char:FindFirstChildOfClass("Humanoid")
+            if not hrp or not hum then return end
+
+            local flying = G.FlightEnabled or G.NoclipFlightEnabled
+            local clipping = G.NoclipEnabled
+
+            if flying then
+                hum.PlatformStand = true
+                local cam = workspace.CurrentCamera
+                local camCF = cam and cam.CFrame
+                if camCF then
+                    local dir = Vector3.new(0, 0, 0)
+                    if moveW then dir = dir + camCF.LookVector end
+                    if moveS then dir = dir - camCF.LookVector end
+                    if moveA then dir = dir - camCF.RightVector end
+                    if moveD then dir = dir + camCF.RightVector end
+                    if moveUp then dir = dir + Vector3.new(0, 1, 0) end
+                    if moveDown then dir = dir - Vector3.new(0, 1, 0) end
+                    if dir.Magnitude > 0 then
+                        hrp.AssemblyLinearVelocity = dir.Unit * G.FlightSpeed
+                    else
+                        hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+                    end
+                end
+            elseif hum then
+                if hum.PlatformStand then hum.PlatformStand = false end
+            end
+
+            if clipping and char then
+                for _, part in ipairs(char:GetDescendants()) do
+                    if part:IsA("BasePart") then
+                        part.CanCollide = false
+                    end
+                end
+            end
+        end)
+    end)
+end
+
 setLoadingStatus("Creating UI...")
 
 local windowOk, window = pcall(function() return library:CreateWindow({}) end)
@@ -2678,6 +2754,81 @@ task.spawn(function()
         notify("NeverHit V2", "Anticheat bypassed!", 3)
     end
 end)
+
+local moveSection = combatPage:CreateSection({ Name = "MOVEMENT", Size = 200, Side = "Right" })
+
+moveSection:CreateToggle({
+    Name = "Flight",
+    State = false,
+    Callback = function(v)
+        G.FlightEnabled = v
+        if v then G.NoclipEnabled = true end
+    end
+})
+
+moveSection:CreateKeybind({
+    Name = "Flight Key",
+    State = {"KeyCode", "V"},
+    Mode = "Toggle",
+    Callback = function(state)
+        G.FlightEnabled = state
+        if state then G.NoclipEnabled = true end
+    end
+})
+
+moveSection:CreateSlider({
+    Name = "Flight Speed",
+    State = 60,
+    Min = 10,
+    Max = 200,
+    Step = 5,
+    Suffix = " studs/s",
+    Callback = function(v) G.FlightSpeed = v end
+})
+
+moveSection:CreateToggle({
+    Name = "Noclip",
+    State = false,
+    Callback = function(v) G.NoclipEnabled = v end
+})
+
+moveSection:CreateKeybind({
+    Name = "Noclip Key",
+    State = {"KeyCode", "N"},
+    Mode = "Toggle",
+    Callback = function(state) G.NoclipEnabled = state end
+})
+
+moveSection:CreateToggle({
+    Name = "Noclip Flight",
+    State = false,
+    Callback = function(v)
+        G.NoclipFlightEnabled = v
+        if v then
+            G.NoclipEnabled = true
+            G.FlightEnabled = true
+        else
+            G.NoclipEnabled = false
+            G.FlightEnabled = false
+        end
+    end
+})
+
+moveSection:CreateKeybind({
+    Name = "Noclip Flight Key",
+    State = {"KeyCode", "B"},
+    Mode = "Toggle",
+    Callback = function(state)
+        G.NoclipFlightEnabled = state
+        if state then
+            G.NoclipEnabled = true
+            G.FlightEnabled = true
+        else
+            G.NoclipEnabled = false
+            G.FlightEnabled = false
+        end
+    end
+})
 
 local aaGeneralSection = aaPage:CreateSection({ Name = "MODE", Size = 300, Side = "Left" })
 
