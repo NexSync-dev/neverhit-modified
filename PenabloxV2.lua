@@ -2493,6 +2493,8 @@ do
         end
     end)
 
+    local savedWalkSpeed = 16
+
     RunService.Heartbeat:Connect(function(dt)
         local ok, err = pcall(function()
             local char = LocalPlayer.Character
@@ -2504,7 +2506,10 @@ do
             local clipping = G.NoclipEnabled
 
             if flying then
-                hum.PlatformStand = true
+                if hum.WalkSpeed ~= 0 then
+                    savedWalkSpeed = hum.WalkSpeed
+                    hum.WalkSpeed = 0
+                end
                 local cam = workspace.CurrentCamera
                 local camCF = cam and cam.CFrame
                 if camCF then
@@ -2521,8 +2526,10 @@ do
                         hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
                     end
                 end
-            elseif hum then
-                if hum.PlatformStand then hum.PlatformStand = false end
+            else
+                if hum.WalkSpeed == 0 then
+                    hum.WalkSpeed = savedWalkSpeed
+                end
             end
 
             if clipping and char then
