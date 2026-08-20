@@ -397,7 +397,7 @@ Hooks.SetPrint = function(enabled)
         local hook = newcclosure(function(...)
             if G.CustomResolverEnabled then
                 local fb = Hooks.feedback
-                if fb then fb(...) end
+                if fb then pcall(fb, ...) end
             end
             return old(...)
         end, "ResolverFeedback")
@@ -509,7 +509,8 @@ end
 
 local function ResolvePlayer()
     local myRoot = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-    local camCF = Camera.CFrame
+    local cam = workspace.CurrentCamera
+    local camCF = cam and cam.CFrame
     local bestCrosshair, bestDot = nil, 0.95
     local bestClosest, bestDist = nil, math.huge
     for _, plr in ipairs(Players:GetPlayers()) do
@@ -608,7 +609,9 @@ for _, plr in ipairs(Players:GetPlayers()) do
 end
 
 local function GetPartNameAtPos(targetPos, originPos)
-    local origin = originPos or Camera.CFrame.Position
+    local cam = workspace.CurrentCamera
+    local origin = originPos or (cam and cam.CFrame and cam.CFrame.Position)
+    if not origin then return "Head" end
     local direction = (targetPos - origin)
     if direction.Magnitude < 0.001 then return "Head" end
     if raycastTargetsDirty then rebuildRaycastTargets() end
@@ -1105,19 +1108,21 @@ task.spawn(function()
     end
 
     Hooks.feedback = function(...)
-        for _, v in ipairs({...}) do
-            local s = decryptstring(tostring(v))
-            if s:lower():find("missed due to") then
-                local best = select(1, ResolvePlayer())
-                if best then
-                    missCounter[best] = (missCounter[best] or 0) + 1
-                    lockedYaw[best] = nil
-                    resolvedYaw[best] = nil
-                    lastMissed[best] = true
-                    confidence[best] = math.max((confidence[best] or 1) - 0.3, 0)
+        pcall(function()
+            for _, v in ipairs({...}) do
+                local s = decryptstring(tostring(v))
+                if s:lower():find("missed due to") then
+                    local best = select(1, ResolvePlayer())
+                    if best then
+                        missCounter[best] = (missCounter[best] or 0) + 1
+                        lockedYaw[best] = nil
+                        resolvedYaw[best] = nil
+                        lastMissed[best] = true
+                        confidence[best] = math.max((confidence[best] or 1) - 0.3, 0)
+                    end
                 end
             end
-        end
+        end)
     end
 
     local function classifyAA(plr)
@@ -1619,33 +1624,95 @@ task.spawn(function()
     local cheatbreakerTick = 0
     local cheatbreakerPhase = 0
     local cheatbreakerPoleIdx = 1
+    local cheatbreakerSubMode = 0
+    local cheatbreakerSubTimer = 0
     local CHEATBREAKER_POLES = {
         math.rad(137), math.rad(274), math.rad(51), math.rad(188),
         math.rad(325), math.rad(102), math.rad(239), math.rad(16),
     }
+    local CHEATBREAKER_OFFSETS = {
+        math.rad(113), math.rad(209), math.rad(67), math.rad(293),
+        math.rad(47), math.rad(173), math.rad(311), math.rad(89),
+        math.rad(231), math.rad(157), math.rad(37), math.rad(263),
+    }
 
     local function SendCheatbreaker(dt)
         cheatbreakerTick = cheatbreakerTick + dt
-        cheatbreakerPhase = cheatbreakerPhase + PHI_STEP * (1 + aaRandom() * 0.5)
+        cheatbreakerPhase = cheatbreakerPhase + PHI_STEP * (1 + aaRandom() * 0.8)
+        cheatbreakerSubTimer = cheatbreakerSubTimer + dt
 
-        local poleAngle = CHEATBREAKER_POLES[cheatbreakerPoleIdx]
-        cheatbreakerPoleIdx = (cheatbreakerPoleIdx % #CHEATBREAKER_POLES) + 1
+        if cheatbreakerSubTimer > 0.08 + aaRandom() * 0.15 then
+            cheatbreakerSubTimer = 0
+            cheatbreakerSubMode = (cheatbreakerSubMode + 1) % 5
+        end
 
-        local yaw = math.deg(poleAngle + cheatbreakerPhase * 0.3)
-        local desync = 30 + math.sin(cheatbreakerPhase * 1.3) * 45
-        local pitch = -(30 + math.cos(cheatbreakerPhase * 0.7) * 50)
+        local yaw, desync, pitch
+
+        if cheatbreakerSubMode == 0 then
+            local poleAngle = CHEATBREAKER_POLES[cheatbreakerPoleIdx]
+            cheatbreakerPoleIdx = (cheatbreakerPoleIdx % #CHEATBREAKER_POLES) + 1
+            yaw = math.deg(poleAngle + cheatbreakerPhase * 0.4)
+            desync = 40 + math.sin(cheatbreakerPhase * 1.3) * 50
+            pitch = -(25 + math.cos(cheatbreakerPhase * 0.7) * 55)
+        elseif cheatbreakerSubMode == 1 then
+            local offsetAngle = CHEATBREAKER_OFFSETS[cheatbreakerPoleIdx]
+            yaw = math.deg(offsetAngle)
+            desync = -60 - aaRandom() * 40
+            pitch = -(70 + aaRandom() * 20)
+        elseif cheatbreakerSubMode == 2 then
+            yaw = math.deg(cheatbreakerPhase) % 360
+            desync = math.sin(cheatbreakerPhase * 3) * 80
+            pitch = math.cos(cheatbreakerPhase * 2.7) * 89
+        elseif cheatbreakerSubMode == 3 then
+            yaw = (aaRandom() * 2 - 1) * 180
+            desync = (aaRandom() * 2 - 1) * 90
+            pitch = -(20 + aaRandom() * 70)
+        else
+            local lerpT = aaRandom()
+            local poleA = CHEATBREAKER_POLES[cheatbreakerPoleIdx]
+            local poleB = CHEATBREAKER_OFFSETS[cheatbreakerPoleIdx]
+            yaw = math.deg(poleA * lerpT + poleB * (1 - lerpT))
+            desync = 50 * math.sin(cheatbreakerPhase)
+            pitch = -45
+        end
 
         local roll = aaRandom()
-        if roll < 0.15 then
+        if roll < 0.2 then
             desync = -desync
-            pitch = -pitch - 20
-        elseif roll < 0.30 then
+            pitch = -pitch - 15
+        elseif roll < 0.35 then
             yaw = yaw + 180
         end
 
         AAHandler.SendYawJitter(nil, "Static", yaw, 0, 0, 0, 0, 0)
         AAHandler.SendBodyYaw(nil, desync)
         AAHandler.SendPitchMode(nil, "Static", pitch, 0, 0, 0, 0, 0)
+
+        pcall(function()
+            local char = LocalPlayer.Character
+            local hrp = char and char:FindFirstChild("HumanoidRootPart")
+            local rootJoint = hrp and hrp:FindFirstChild("RootJoint") or (char and char:FindFirstChild("HumanoidRootPart") and char.HumanoidRootPart:FindFirstChildOfClass("Motor6D"))
+            if rootJoint then
+                if not rootJoint:GetAttribute("OriginalC0") then
+                    rootJoint:SetAttribute("OriginalC0", rootJoint.C0)
+                end
+                local fakeYaw = math.rad(yaw)
+                rootJoint.C0 = CFrame.new(0, 0, 0) * CFrame.Angles(0, fakeYaw, 0)
+            end
+        end)
+
+        pcall(function()
+            local char = LocalPlayer.Character
+            local hrp = char and char:FindFirstChild("HumanoidRootPart")
+            if hrp then
+                local vel = hrp.AssemblyLinearVelocity
+                local flatVel = Vector3.new(vel.X, 0, vel.Z)
+                if flatVel.Magnitude > 1 then
+                    local fakeDir = Vector3.new(math.sin(cheatbreakerPhase), 0, math.cos(cheatbreakerPhase))
+                    hrp.AssemblyLinearVelocity = fakeDir * flatVel.Magnitude + Vector3.new(0, vel.Y, 0)
+                end
+            end
+        end)
     end
 
     local lastSent = {}
@@ -2637,6 +2704,16 @@ local function DisableAllAAModes()
     G.AdaptiveAAEnabled = false
     G.CheatbreakerEnabled = false
     G.UnhittableEngine = false
+
+    pcall(function()
+        local char = LocalPlayer.Character
+        local hrp = char and char:FindFirstChild("HumanoidRootPart")
+        local rootJoint = hrp and (hrp:FindFirstChild("RootJoint") or hrp:FindFirstChildOfClass("Motor6D"))
+        if rootJoint and rootJoint:GetAttribute("OriginalC0") then
+            rootJoint.C0 = rootJoint:GetAttribute("OriginalC0")
+            rootJoint:SetAttribute("OriginalC0", nil)
+        end
+    end)
 end
 
 UIRefs.activeMode = aaGeneralSection:CreateDropdown({
