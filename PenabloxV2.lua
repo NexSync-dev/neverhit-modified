@@ -2457,8 +2457,6 @@ forceHitSection:CreateToggle({
 
 local resolverSection = combatPage:CreateSection({ Name = "RESOLVER", Size = 420, Side = "Left" })
 
-resolverSection:CreateLabel({ Name = "Velocity-correlated multi-signal resolver V4" })
-
 UIRefs.resolverToggle = resolverSection:CreateToggle({
     Name = "Custom Resolver",
     State = false,
@@ -3182,9 +3180,9 @@ end
 
 local presetHelperSection = presetPage:CreateSection({ Name = "INFO", Size = 160, Side = "Left" })
 
-presetHelperSection:CreateButton({ Name = "One-click loadouts for AA + Resolver.", Callback = function() end })
-presetHelperSection:CreateButton({ Name = "ESP and misc are up to you.", Callback = function() end })
-presetHelperSection:CreateButton({ Name = "Pick one, done.", Callback = function() end })
+presetHelperSection:CreateLabel({ Name = "One-click loadouts for AA + Resolver." })
+presetHelperSection:CreateLabel({ Name = "ESP and misc are up to you." })
+presetHelperSection:CreateLabel({ Name = "Pick one, done." })
 
 local function ApplyPreset(preset)
     DisableAllAAModes()
