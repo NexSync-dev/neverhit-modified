@@ -1,15 +1,3 @@
---[[
-    Penablox V2 — NeverHit Modified
-    Rewrite using Skeet Framework UI
-    Target: Penablox HVH (PlaceId: 122764594952227)
-    Discord: https://discord.gg/sMv9YeXbYR
-    Credits: hush (@mjzt) for Divine.lua OLD resolver, cathak for spread decompile
-]]
-
-------------------------------------------------------------------------
--- 1. EXECUTOR CHECK
-------------------------------------------------------------------------
-
 local function globalexists(name)
     if type(getgenv) == "function" then
         local ok, env = pcall(getgenv)
@@ -37,10 +25,6 @@ if #missing > 12 then
     warn("[NeverHit V2] Executor not supported (" .. #missing .. " missing functions)")
     return
 end
-
- ------------------------------------------------------------------------
--- 1b. NOTIFICATION SYSTEM & LOADING SCREEN
-------------------------------------------------------------------------
 
 local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
@@ -191,16 +175,11 @@ end
 
 notify("NeverHit V2", "Executor supported! Loading UI...", 3)
 
--- Safety: auto-destroy loading screen after 15s if script errors before cleanup
 task.delay(15, function()
     if loadingGui and loadingGui.Parent then
         pcall(function() loadingGui:Destroy() end)
     end
 end)
-
- ------------------------------------------------------------------------
--- 2. DOUBLE-LOAD GUARD + GAME CHECK (before library fetch — no wasted exec)
------------------------------------------------------------------------
 
 if getgenv().NeverHitIsLoaded then
     warn("[NeverHit V2] Already loaded!")
@@ -213,10 +192,6 @@ if game.PlaceId ~= 122764594952227 then
     return
 end
 
- ------------------------------------------------------------------------
--- 3. LOAD SKEET UI LIB
------------------------------------------------------------------------
-
 setLoadingStatus("Loading UI library...")
 
 local library = loadstring(game:HttpGet("https://raw.githubusercontent.com/NexSync-dev/test.guilib/refs/heads/main/skeet.lua"))()
@@ -224,10 +199,6 @@ if not library then
     warn("[NeverHit V2] Failed to load UI library")
     return
 end
-
- ------------------------------------------------------------------------
--- 4. GLOBALS (individual nil guards — no config corruption)
------------------------------------------------------------------------
 
 local G = getgenv()
 
@@ -281,6 +252,12 @@ G.DivineLuaLERPEnabled = G.DivineLuaLERPEnabled or false
 G.DivineLuaLERPSpeed = G.DivineLuaLERPSpeed or 0.35
 G.DivineLuaBIASAngle = G.DivineLuaBIASAngle or math.rad(25)
 
+G.ResolverVelocityDetect = (G.ResolverVelocityDetect == nil) and true or G.ResolverVelocityDetect
+G.ResolverLBYBreakDetect = (G.ResolverLBYBreakDetect == nil) and true or G.ResolverLBYBreakDetect
+G.ResolverFlipPredict = (G.ResolverFlipPredict == nil) and true or G.ResolverFlipPredict
+G.ResolverConfidenceThreshold = G.ResolverConfidenceThreshold or 0.3
+G.ResolverBruteOffsetCount = G.ResolverBruteOffsetCount or 12
+
 G.CustomBruteOffsets = G.CustomBruteOffsets or nil
 G.ResolverModePerEnemy = G.ResolverModePerEnemy or false
 
@@ -317,10 +294,15 @@ G.AutoRejoin = (G.AutoRejoin == nil) and true or G.AutoRejoin
 G.IgnoreGP = G.IgnoreGP or false
 G.AAdirty = G.AAdirty or false
 
--- QOL
 G.PanicEnabled = false
 G.Keybinds = G.Keybinds or {}
 G.WatermarkEnabled = (G.WatermarkEnabled == nil) and true or G.WatermarkEnabled
+G.WatermarkShowFPS = (G.WatermarkShowFPS == nil) and true or G.WatermarkShowFPS
+G.WatermarkShowPing = (G.WatermarkShowPing == nil) and true or G.WatermarkShowPing
+G.WatermarkShowVersion = (G.WatermarkShowVersion == nil) and true or G.WatermarkShowVersion
+G.WatermarkShowName = (G.WatermarkShowName == nil) and true or G.WatermarkShowName
+G.WatermarkShowTime = (G.WatermarkShowTime == nil) and true or G.WatermarkShowTime
+G.WatermarkShowFeatures = (G.WatermarkShowFeatures == nil) and true or G.WatermarkShowFeatures
 G.CrosshairEnabled = G.CrosshairEnabled or false
 G.CrosshairSize = G.CrosshairSize or 6
 G.CrosshairGap = G.CrosshairGap or 4
@@ -328,7 +310,6 @@ G.CrosshairThickness = G.CrosshairThickness or 1
 G.CrosshairColor = G.CrosshairColor or Color3.fromRGB(255, 255, 255)
 G.SessionStatsEnabled = (G.SessionStatsEnabled == nil) and true or G.SessionStatsEnabled
 
--- ESP additions
 G.ESPSkeleton = G.ESPSkeleton or false
 G.ESPSkeletonColor = G.ESPColor or Color3.fromRGB(255, 161, 232)
 G.ESPVelArrow = G.ESPVelArrow or false
@@ -341,16 +322,13 @@ G.ESPFOVCircle = G.ESPFOVCircle or false
 G.ESPFOVRadius = G.ESPFOVRadius or 200
 G.ESPSpreadCircle = G.ESPSpreadCircle or false
 
--- Dynamic hitpart
 G.DynamicHitpart = G.DynamicHitpart or false
 
--- Auto rejoin improvements
 G.AutoRejoinDelay = G.AutoRejoinDelay or 0.5
 G.AutoRejoinSmart = G.AutoRejoinSmart or false
 G.LastRejoinTime = 0
 G.RejoinCount = 0
 
--- Hitparts on load
 if G.RageBotHitPos == "Auto" then
     pcall(function()
         local lp = game:GetService("Players").LocalPlayer
@@ -359,10 +337,6 @@ if G.RageBotHitPos == "Auto" then
         end
     end)
 end
-
-------------------------------------------------------------------------
--- 6. VOLT HELPERS + HOOK MANAGER
-------------------------------------------------------------------------
 
 local newcclosure = newcclosure or function(f) return f end
 local setstackhidden = setstackhidden or function() end
@@ -430,10 +404,6 @@ Hooks.SetPrint = function(enabled)
     end
 end
 
-------------------------------------------------------------------------
--- 7. PRNG (splitmix64 — stronger than V1's weak LCG)
-------------------------------------------------------------------------
-
 local prngState = bit32.bxor(os.clock() * 1e9, os.time()) % 2^32
 
 local function splitmix()
@@ -450,10 +420,6 @@ end
 local function aaRandom()
     return splitmix()
 end
-
-------------------------------------------------------------------------
--- 8. CIPHER SYSTEM
-------------------------------------------------------------------------
 
 local cipherCache = { key = false, enc = nil, decPat = nil, decLookup = nil }
 
@@ -513,10 +479,6 @@ local function decryptstring(text)
     if not cipherCache.decPat then return text end
     return text:gsub(cipherCache.decPat, cipherCache.decLookup)
 end
-
-------------------------------------------------------------------------
--- 9. UTILITY FUNCTIONS
-------------------------------------------------------------------------
 
 local Players = game:GetService("Players")
 local Camera = workspace.CurrentCamera
@@ -619,7 +581,6 @@ local function sanitizePos(v)
     return v
 end
 
--- Raycast for part detection
 local raycastParams = RaycastParams.new()
 raycastParams.FilterType = Enum.RaycastFilterType.Include
 local raycastTargets = {}
@@ -653,10 +614,6 @@ local function GetPartNameAtPos(targetPos, originPos)
     local result = workspace:Raycast(origin, direction, raycastParams)
     return (result and result.Instance) and result.Instance.Name or "Head"
 end
-
-------------------------------------------------------------------------
--- 10. ANTICHEAT BYPASS (auto-run on load)
-------------------------------------------------------------------------
 
 local anticheatBypassed = false
 
@@ -733,10 +690,6 @@ task.spawn(function()
     print("[NeverHit V2] Client checks disabled")
 end)
 
-------------------------------------------------------------------------
--- 11. DISABLE DEFAULT RAGEBOT
-------------------------------------------------------------------------
-
 local function disabledefaultragebot()
     if not globalexists("getconnections") then return end
 
@@ -761,10 +714,6 @@ local function disabledefaultragebot()
     end
 end
 
-------------------------------------------------------------------------
--- 12b. FORCE HIT HELPERS
-------------------------------------------------------------------------
-
 local function findTargetAtPos(pos)
     local best, bestDist = nil, math.huge
     for _, plr in ipairs(Players:GetPlayers()) do
@@ -779,10 +728,6 @@ local function findTargetAtPos(pos)
     end
     return best
 end
-
-------------------------------------------------------------------------
--- 12. FORCE HIT (__namecall hook — Volt-compatible, synchronous)
-------------------------------------------------------------------------
 
 do
     if globalexists("hookmetamethod") then
@@ -904,7 +849,6 @@ do
     end
 end
 
--- Auto-ping prediction
 task.spawn(function()
     while task.wait(0.5) do
         if G.RageBotAutoPrediction then
@@ -915,10 +859,6 @@ task.spawn(function()
         end
     end
 end)
-
-------------------------------------------------------------------------
--- 13. VELOCITY REMOVAL
-------------------------------------------------------------------------
 
 task.spawn(function()
     local ok, MovementModule = pcall(function()
@@ -966,10 +906,6 @@ task.spawn(function()
     end
 end)
 
-------------------------------------------------------------------------
--- 14. INFINITE AMMO
-------------------------------------------------------------------------
-
 task.spawn(function()
     local ReloadRemote = game:GetService("ReplicatedStorage"):FindFirstChild("Reload")
         or game:GetService("ReplicatedStorage"):WaitForChild("Reload", 30)
@@ -980,10 +916,6 @@ task.spawn(function()
         pcall(function() ReloadRemote:FireServer() end)
     end
 end)
-
-------------------------------------------------------------------------
--- 15. SPREAD MODIFIER
-------------------------------------------------------------------------
 
 local spreadTable = nil
 
@@ -1032,10 +964,6 @@ task.spawn(function()
     end
 end)
 
-------------------------------------------------------------------------
--- 16. PREFIX / FAKE DEV TAG
-------------------------------------------------------------------------
-
 local prefixTarget = nil
 
 local function findPrefixTarget()
@@ -1073,12 +1001,6 @@ local function removePrefix()
     if not target then return end
     target.Dev.players[LocalPlayer.UserId] = false
 end
-
-------------------------------------------------------------------------
--- 17. RESOLVER V4 — velocity-correlated, multi-signal, data-only
---     Tracks yaw, velocity, body/head angles, exposes resolvedYaw
---     for Force Hit desync correction. Does NOT write to joints.
-------------------------------------------------------------------------
 
 task.spawn(function()
     local RunService = cloneref(game:GetService("RunService"))
@@ -1437,10 +1359,6 @@ task.spawn(function()
     end)
 end)
 
-------------------------------------------------------------------------
--- 18. AA ENGINE
-------------------------------------------------------------------------
-
 task.spawn(function()
     if G.AAIsLooped then return end
 
@@ -1489,7 +1407,6 @@ task.spawn(function()
 
     G.__NeverHitRemoveYawHook = removeYawHook
 
-    -- True Random
     local trueRandomFrame = 0
 
     local function hashMix(x)
@@ -1570,7 +1487,6 @@ task.spawn(function()
         AAHandler.SendPitchMode(nil, "Static", pitch, 0, 0, 0, 0, 0)
     end
 
-    -- GOLDEN RATIO JITTER
     local PHI_STEP = math.rad(137.508)
     local goldenPhase = 0
 
@@ -1584,7 +1500,6 @@ task.spawn(function()
         AAHandler.SendPitchMode(nil, "Static", pitch, 0, 0, 0, 0, 0)
     end
 
-    -- MULTI-POLE JITTER
     local multiPoleIdx = 1
     local function getMultiPoleAngles(count)
         local angles = {}
@@ -1605,7 +1520,6 @@ task.spawn(function()
         AAHandler.SendPitchMode(nil, "Static", pitch, 0, 0, 0, 0, 0)
     end
 
-    -- FREQUENCY SWEEP
     local sweepTime = 0
     local SWEEP_PERIOD = 4
 
@@ -1621,7 +1535,6 @@ task.spawn(function()
         AAHandler.SendPitchMode(nil, "Static", pitch, 0, 0, 0, 0, 0)
     end
 
-    -- COMPOUND DESYNC (THREE OSCILLATOR)
     local t1, t2, t3 = 0, 0, 0
     local F1 = 8
     local F2 = 8 * 1.618
@@ -1639,7 +1552,6 @@ task.spawn(function()
         AAHandler.SendPitchMode(nil, "Static", pitch, 0, 0, 0, 0, 0)
     end
 
-    -- STUTTERED STATIC
     local stutterToggle = false
 
     local function SendStutteredStatic()
@@ -1656,7 +1568,6 @@ task.spawn(function()
         end
     end
 
-    -- GRAY ZONE BRUTEFORCE DODGE
     local GRAY_ZONE_8 = {}
     local GRAY_ZONE_16 = {}
     for i = 0, 7 do GRAY_ZONE_8[#GRAY_ZONE_8 + 1] = math.rad(i * 45 + 22.5) end
@@ -1671,7 +1582,6 @@ task.spawn(function()
         AAHandler.SendPitchMode(nil, "Static", -55, 0, 0, 0, 0, 0)
     end
 
-    -- RESOLVER BAIT
     local baitPhase = 0
     local BAIT_HOLD_FRAMES = 18
 
@@ -1688,7 +1598,6 @@ task.spawn(function()
         end
     end
 
-    -- ADAPTIVE (ANTI-HIT RESPONSE)
     local adaptiveBlacklist = {}
     local lastAdaptiveHP = 100
     local adaptiveCycleModes = {"GoldenRatio", "MultiPole", "TrueRandom"}
@@ -1812,10 +1721,6 @@ task.spawn(function()
     end
 end)
 
-------------------------------------------------------------------------
--- 19. UNHITTABLE PRESETS
-------------------------------------------------------------------------
-
 local UnhittablePresets = {
     { Name = "Balanced",     Rate = 60,  Min = 40, Bias = 65, Pitch = 35, Flip = 0.008 },
     { Name = "Hyper Fast",   Rate = 120, Min = 25, Bias = 55, Pitch = 60, Flip = 0.004 },
@@ -1827,6 +1732,9 @@ local UnhittablePresets = {
 
 local presetNames = {}
 for _, p in ipairs(UnhittablePresets) do presetNames[#presetNames + 1] = p.Name end
+
+local SyncUIFromGlobals
+SyncUIFromGlobals = function() end
 
 local function SetUnhittablePreset(name)
     for _, p in ipairs(UnhittablePresets) do
@@ -1840,6 +1748,7 @@ local function SetUnhittablePreset(name)
             G.UnhittableDesyncBias = p.Bias
             G.UnhittablePitchRange = p.Pitch
             G.UnhittableFlipDelay = p.Flip
+            SyncUIFromGlobals()
             print("[V2] Unhittable preset: " .. name)
             return
         end
@@ -1861,11 +1770,8 @@ local function ApplyNeverHitPreset()
     G.UnhittableEngine = false
     G.TrueRandomAA = false
     G.AntiAimEnabled = true
+    SyncUIFromGlobals()
 end
-
-------------------------------------------------------------------------
--- 20. ESP + CHAMS + CHINA HAT DRAW ENGINE
-------------------------------------------------------------------------
 
 local function NeverHitDrawEngine()
     local BABY_PINK = Color3.fromRGB(255, 161, 232)
@@ -1902,7 +1808,6 @@ local function NeverHitDrawEngine()
         return math.max(maxY - minY, 4), math.max(maxX - minX, 4), (minX + maxX) / 2, minY
     end
 
-    -- Chams (Highlight instances)
     local chamsData = {}
 
     local function destroyChams(plr)
@@ -1937,7 +1842,6 @@ local function NeverHitDrawEngine()
                 local lp = Players.LocalPlayer
                 if not lp then return end
 
-                -- China Hat
                 if G.ChinaHat and lp.Character then
                     local head = lp.Character:FindFirstChild("Head")
                     if head then
@@ -1947,13 +1851,16 @@ local function NeverHitDrawEngine()
                         local hatWorldR = hatWorldH * ((G.ChinaHatRadius or 55) / 100)
                         local rimSegs = G.ChinaHatSegments or 8
 
-                        local headPos = G.ChinaHatFollowTop and (head.Position + Vector3.new(0, head.Size.Y / 2, 0)) or head.Position
-                        local tipWorld = headPos + Vector3.new(0, hatWorldH, 0)
+                        local headCF = head.CFrame
+                        local headOffset = G.ChinaHatFollowTop and headCF.UpVector * (head.Size.Y / 2) or Vector3.zero
+                        local basePos = headCF.Position + headOffset
+                        local tipWorld = basePos + headCF.UpVector * hatWorldH
                         local rimWorld, brimWorld = {}, {}
                         for i = 1, rimSegs do
                             local a = (i / rimSegs) * math.pi * 2
-                            rimWorld[i] = headPos + Vector3.new(math.cos(a) * hatWorldR, 0, math.sin(a) * hatWorldR)
-                            brimWorld[i] = headPos + Vector3.new(math.cos(a) * hatWorldR * 1.3, -hatWorldH * 0.10, math.sin(a) * hatWorldR * 1.3)
+                            local localRim = headCF.RightVector * (math.cos(a) * hatWorldR) + headCF.LookVector * (math.sin(a) * hatWorldR)
+                            rimWorld[i] = basePos + localRim
+                            brimWorld[i] = basePos + localRim * 1.3 + headCF.UpVector * (-hatWorldH * 0.10)
                         end
 
                         local tipV, tipOn = Camera:WorldToViewportPoint(tipWorld)
@@ -2004,7 +1911,6 @@ local function NeverHitDrawEngine()
                     end
                 end
 
-                -- Unified ESP
                 if G.ESPEnabled and lp.Character then
                     local myRoot = lp.Character:FindFirstChild("HumanoidRootPart")
                     local espColor = G.ESPColor or BABY_PINK
@@ -2135,14 +2041,12 @@ local function NeverHitDrawEngine()
                     end
                 end
 
-                -- FOV Circle
                 if G.ESPFOVCircle then
                     local center = Camera.ViewportSize / 2
                     local radius = G.ESPFOVRadius or 200
                     DrawingImmediate.Circle(center, radius, WHITE, 1, 1)
                 end
 
-                -- Off-Screen Indicators
                 if G.ESPOffScreen then
                     for _, plr in ipairs(Players:GetPlayers()) do
                         if plr ~= lp and plr.Character then
@@ -2170,7 +2074,6 @@ local function NeverHitDrawEngine()
                     end
                 end
 
-                -- Chams
                 if G.ESPChamsEnabled then
                     for _, plr in ipairs(Players:GetPlayers()) do
                         if plr ~= lp and plr.Character then
@@ -2186,7 +2089,7 @@ local function NeverHitDrawEngine()
             end)
         end)
     else
-        -- Drawing.new fallback
+
         local espObjects = {}
 
         local function getEspObjects(plr)
@@ -2220,7 +2123,6 @@ local function NeverHitDrawEngine()
             destroyChams(plr)
         end
 
-        -- China Hat Drawing pool
         local hatPool = {}
         local hatPoolN = 0
 
@@ -2240,7 +2142,6 @@ local function NeverHitDrawEngine()
             end
         end
 
-        -- FOV Circle Drawing object (fallback)
         local fovCircle = Drawing.new("Circle")
         fovCircle.Visible = false
         fovCircle.Thickness = 1
@@ -2256,7 +2157,6 @@ local function NeverHitDrawEngine()
                 if not lp or not lp.Character then return end
                 local myRoot = lp.Character:FindFirstChild("HumanoidRootPart")
 
-                -- China Hat
                 if G.ChinaHat then
                     local head = lp.Character:FindFirstChild("Head")
                     if head then
@@ -2265,13 +2165,16 @@ local function NeverHitDrawEngine()
                         local hatWorldH = (G.ChinaHatSize or 40) / 60
                         local hatWorldR = hatWorldH * ((G.ChinaHatRadius or 55) / 100)
                         local rimSegs = G.ChinaHatSegments or 8
-                        local headPos = G.ChinaHatFollowTop and (head.Position + Vector3.new(0, head.Size.Y / 2, 0)) or head.Position
-                        local tipWorld = headPos + Vector3.new(0, hatWorldH, 0)
+                        local headCF = head.CFrame
+                        local headOffset = G.ChinaHatFollowTop and headCF.UpVector * (head.Size.Y / 2) or Vector3.zero
+                        local basePos = headCF.Position + headOffset
+                        local tipWorld = basePos + headCF.UpVector * hatWorldH
                         local rimWorld, brimWorld = {}, {}
                         for i = 1, rimSegs do
                             local a = (i / rimSegs) * math.pi * 2
-                            rimWorld[i] = headPos + Vector3.new(math.cos(a) * hatWorldR, 0, math.sin(a) * hatWorldR)
-                            brimWorld[i] = headPos + Vector3.new(math.cos(a) * hatWorldR * 1.3, -hatWorldH * 0.10, math.sin(a) * hatWorldR * 1.3)
+                            local localRim = headCF.RightVector * (math.cos(a) * hatWorldR) + headCF.LookVector * (math.sin(a) * hatWorldR)
+                            rimWorld[i] = basePos + localRim
+                            brimWorld[i] = basePos + localRim * 1.3 + headCF.UpVector * (-hatWorldH * 0.10)
                         end
 
                         local tipV, tipOn = Camera:WorldToViewportPoint(tipWorld)
@@ -2349,7 +2252,6 @@ local function NeverHitDrawEngine()
                     hideAllHat()
                 end
 
-                -- Unified ESP
                 if G.ESPEnabled then
                     local espColor = G.ESPColor or BABY_PINK
                     local distLimit = G.ESPMaxDistance or 500
@@ -2433,7 +2335,6 @@ local function NeverHitDrawEngine()
                     end
                 end
 
-                -- Chams
                 if G.ESPChamsEnabled then
                     for _, plr in ipairs(Players:GetPlayers()) do
                         if plr ~= lp and plr.Character and not chamsData[plr] then
@@ -2447,12 +2348,10 @@ local function NeverHitDrawEngine()
                     end
                 end
 
-                -- Cleanup disconnected
                 for plr, _ in pairs(espObjects) do
                     if type(plr) ~= "string" and not Players:FindFirstChild(plr.Name) then removeEsp(plr) end
                 end
 
-                -- FOV Circle (fallback)
                 if G.ESPFOVCircle then
                     local center = Camera.ViewportSize / 2
                     fovCircle.Position = center
@@ -2465,7 +2364,6 @@ local function NeverHitDrawEngine()
             end)
         end)
 
-        -- Re-create chams on respawn
         Players.PlayerAdded:Connect(function(plr)
             plr.CharacterAdded:Connect(function()
                 task.wait(0.5)
@@ -2485,10 +2383,6 @@ end
 
 task.spawn(NeverHitDrawEngine)
 
- ------------------------------------------------------------------------
--- 21. UI SETUP (Skeet Framework)
-------------------------------------------------------------------------
-
 setLoadingStatus("Creating UI...")
 
 local windowOk, window = pcall(function() return library:CreateWindow({}) end)
@@ -2498,16 +2392,13 @@ if not windowOk then
     return
 end
 
--- Pages
 local combatPage = window:CreatePage({ Icon = "rbxassetid://8547236654" })
 local aaPage = window:CreatePage({ Icon = "rbxassetid://8547256547" })
 local visualsPage = window:CreatePage({ Icon = "rbxassetid://8547254518" })
 local miscPage = window:CreatePage({ Icon = "rbxassetid://8547249956" })
 local presetPage = window:CreatePage({ Icon = "rbxassetid://8547250556" })
 
-------------------------------------------------------------------------
--- 21a. COMBAT PAGE
-------------------------------------------------------------------------
+local UIRefs = {}
 
 local forceHitSection = combatPage:CreateSection({ Name = "FORCE HIT", Size = 280, Side = "Left" })
 
@@ -2564,10 +2455,11 @@ forceHitSection:CreateToggle({
     Callback = function(v) G.HumanizeHitPos = v end
 })
 
--- Resolver section
-local resolverSection = combatPage:CreateSection({ Name = "RESOLVER", Size = 220, Side = "Left" })
+local resolverSection = combatPage:CreateSection({ Name = "RESOLVER", Size = 420, Side = "Left" })
 
-resolverSection:CreateToggle({
+resolverSection:CreateLabel({ Name = "Velocity-correlated multi-signal resolver V4" })
+
+UIRefs.resolverToggle = resolverSection:CreateToggle({
     Name = "Custom Resolver",
     State = false,
     Callback = function(v)
@@ -2578,12 +2470,18 @@ resolverSection:CreateToggle({
 })
 
 resolverSection:CreateToggle({
+    Name = "Divine Correction",
+    State = false,
+    Callback = function(v) G.DivineLuaCorrection = v end
+})
+
+UIRefs.lerpToggle = resolverSection:CreateToggle({
     Name = "Divine LERP",
     State = false,
     Callback = function(v) G.DivineLuaLERPEnabled = v end
 })
 
-resolverSection:CreateSlider({
+UIRefs.lerpSpeed = resolverSection:CreateSlider({
     Name = "LERP Speed",
     State = 35,
     Min = 0,
@@ -2593,7 +2491,7 @@ resolverSection:CreateSlider({
     Callback = function(v) G.DivineLuaLERPSpeed = v / 100 end
 })
 
-resolverSection:CreateSlider({
+UIRefs.biasAngle = resolverSection:CreateSlider({
     Name = "Bias Angle",
     State = 25,
     Min = 0,
@@ -2604,12 +2502,58 @@ resolverSection:CreateSlider({
 })
 
 resolverSection:CreateToggle({
-    Name = "Per-Enemy Resolver Mode",
+    Name = "Velocity Desync Detect",
+    State = true,
+    Callback = function(v) G.ResolverVelocityDetect = v end
+})
+
+resolverSection:CreateToggle({
+    Name = "LBY Break Detect",
+    State = true,
+    Callback = function(v) G.ResolverLBYBreakDetect = v end
+})
+
+resolverSection:CreateToggle({
+    Name = "Flip Phase Predict",
+    State = true,
+    Callback = function(v) G.ResolverFlipPredict = v end
+})
+
+resolverSection:CreateSlider({
+    Name = "Confidence Threshold",
+    State = 30,
+    Min = 0,
+    Max = 100,
+    Step = 1,
+    Suffix = "%",
+    Callback = function(v) G.ResolverConfidenceThreshold = v / 100 end
+})
+
+resolverSection:CreateDropdown({
+    Name = "Resolver Mode",
+    Options = {"Auto", "Velocity", "LBY Break", "Flip Predict", "Static Offset"},
+    State = 1,
+    Callback = function(idx)
+        local modes = {"Auto", "Velocity", "LBY Break", "Flip Predict", "Static Offset"}
+        G.CustomResolverMode = modes[idx]
+    end
+})
+
+resolverSection:CreateToggle({
+    Name = "Per-Enemy Mode",
     State = false,
     Callback = function(v) G.ResolverModePerEnemy = v end
 })
 
--- Weapon section
+resolverSection:CreateSlider({
+    Name = "Brute Offset Count",
+    State = 12,
+    Min = 4,
+    Max = 12,
+    Step = 1,
+    Callback = function(v) G.ResolverBruteOffsetCount = v end
+})
+
 local weaponSection = combatPage:CreateSection({ Name = "WEAPON", Size = 200, Side = "Right" })
 
 weaponSection:CreateToggle({
@@ -2643,7 +2587,6 @@ weaponSection:CreateSlider({
     end
 })
 
--- Anticheat section
 local acSection = combatPage:CreateSection({ Name = "ANTICHEAT", Size = 100, Side = "Right" })
 
 local acToggle = acSection:CreateToggle({
@@ -2652,7 +2595,6 @@ local acToggle = acSection:CreateToggle({
     Callback = function() end
 })
 
--- Update status after bypass completes
 task.spawn(function()
     while not anticheatBypassed and task.wait(0.5) do end
     task.wait(0.2)
@@ -2662,13 +2604,9 @@ task.spawn(function()
     end
 end)
 
-------------------------------------------------------------------------
--- 21b. ANTI-AIM PAGE
-------------------------------------------------------------------------
-
 local aaGeneralSection = aaPage:CreateSection({ Name = "MODE", Size = 300, Side = "Left" })
 
-aaGeneralSection:CreateToggle({
+UIRefs.aaToggle = aaGeneralSection:CreateToggle({
     Name = "Enable Anti-Aim",
     State = false,
     Callback = function(v) G.AntiAimEnabled = v end
@@ -2745,40 +2683,39 @@ aaGeneralSection:CreateDropdown({
     Callback = function(idx) G.MultiPoleCount = idx + 2 end
 })
 
--- Angles section
 local aaAnglesSection = aaPage:CreateSection({ Name = "ANGLES", Size = 320, Side = "Right" })
 
-aaAnglesSection:CreateSlider({
+UIRefs.baseYaw = aaAnglesSection:CreateSlider({
     Name = "Base Yaw",
     State = 0, Min = -180, Max = 180, Step = 1, Suffix = "deg",
     Callback = function(v) G.BaseYawantiaim = v end
 })
 
-aaAnglesSection:CreateSlider({
+UIRefs.yawLeft = aaAnglesSection:CreateSlider({
     Name = "Yaw Left",
     State = 0, Min = -180, Max = 180, Step = 1, Suffix = "deg",
     Callback = function(v) G.leftantiaim = v end
 })
 
-aaAnglesSection:CreateSlider({
+UIRefs.yawRight = aaAnglesSection:CreateSlider({
     Name = "Yaw Right",
     State = 0, Min = -180, Max = 180, Step = 1, Suffix = "deg",
     Callback = function(v) G.rightantiaim = v end
 })
 
-aaAnglesSection:CreateSlider({
+UIRefs.pitch = aaAnglesSection:CreateSlider({
     Name = "Pitch",
     State = 0, Min = -90, Max = 90, Step = 1, Suffix = "deg",
     Callback = function(v) G.Pitchantiaim = v end
 })
 
-aaAnglesSection:CreateSlider({
+UIRefs.bodyYaw = aaAnglesSection:CreateSlider({
     Name = "Body Yaw",
     State = 0, Min = -80, Max = 80, Step = 1, Suffix = "deg",
     Callback = function(v) G.BodyYawantiaim = v end
 })
 
-aaAnglesSection:CreateToggle({
+UIRefs.baseYawHook = aaAnglesSection:CreateToggle({
     Name = "Base Yaw Hook [LOW FPS]",
     State = false,
     Callback = function(v)
@@ -2787,64 +2724,63 @@ aaAnglesSection:CreateToggle({
     end
 })
 
--- Extra section
 local aaExtraSection = aaPage:CreateSection({ Name = "EXTRA", Size = 350, Side = "Right" })
 
-aaExtraSection:CreateSlider({
+UIRefs.jitter = aaExtraSection:CreateSlider({
     Name = "Jitter Amount",
     State = 157, Min = 0, Max = 180, Step = 1, Suffix = "deg",
     Callback = function(v) G.antiaimjitter = v end
 })
 
-aaExtraSection:CreateSlider({
+UIRefs.delay = aaExtraSection:CreateSlider({
     Name = "Delay",
     State = 0, Min = 0, Max = 11, Step = 1, Suffix = "ms",
     Callback = function(v) G.antiaimdelayness = v / 1000 end
 })
 
-aaExtraSection:CreateSlider({
+UIRefs.updateRate = aaExtraSection:CreateSlider({
     Name = "Update Rate (Hz)",
     State = 60, Min = 10, Max = 1000, Step = 1, Suffix = "Hz",
     Callback = function(v) G.UnhittableRate = v end
 })
 
-aaExtraSection:CreateSlider({
+UIRefs.minDesync = aaExtraSection:CreateSlider({
     Name = "Min Desync Depth",
     State = 40, Min = 0, Max = 80, Step = 1,
     Callback = function(v) G.UnhittableMinDesync = v end
 })
 
-aaExtraSection:CreateSlider({
+UIRefs.desyncBias = aaExtraSection:CreateSlider({
     Name = "Desync Bias %",
     State = 65, Min = 0, Max = 100, Step = 1, Suffix = "%",
     Callback = function(v) G.UnhittableDesyncBias = v end
 })
 
-aaExtraSection:CreateSlider({
+UIRefs.pitchRange = aaExtraSection:CreateSlider({
     Name = "Pitch Range",
     State = 35, Min = 0, Max = 60, Step = 1,
     Callback = function(v) G.UnhittablePitchRange = v end
 })
 
-aaExtraSection:CreateSlider({
+UIRefs.flipDelay = aaExtraSection:CreateSlider({
     Name = "Flip Delay",
     State = 8, Min = 3, Max = 20, Step = 1, Suffix = "ms",
     Callback = function(v) G.UnhittableFlipDelay = v / 1000 end
 })
 
-aaExtraSection:CreateToggle({
+UIRefs.asymmetricPoles = aaExtraSection:CreateToggle({
     Name = "Asymmetric Poles",
     State = false,
     Callback = function(v) G.AAAsymmetricPoles = v end
 })
 
-aaExtraSection:CreateToggle({
+UIRefs.microNoise = aaExtraSection:CreateToggle({
     Name = "Micro Noise Layer",
     State = false,
     Callback = function(v) G.AAMicroNoise = v end
 })
 
-aaExtraSection:CreateToggle({
+UIRefs.perShotPitch = aaExtraSection:CreateToggle({
     Name = "Per-Shot Pitch Random",
     State = false,
     Callback = function(v) G.AAPerShotPitch = v end
@@ -2855,10 +2791,6 @@ aaExtraSection:CreateToggle({
     State = false,
     Callback = function(v) G.DynamicHitpart = v end
 })
-
-------------------------------------------------------------------------
--- 21c. VISUALS PAGE
-------------------------------------------------------------------------
 
 local espSection = visualsPage:CreateSection({ Name = "ESP", Size = 310, Side = "Left" })
 
@@ -2958,7 +2890,6 @@ espSection:CreateSlider({
     Callback = function(v) G.ESPFOVRadius = v end
 })
 
--- Chams section
 local chamsSection = visualsPage:CreateSection({ Name = "CHAMS", Size = 180, Side = "Left" })
 
 chamsSection:CreateToggle({
@@ -2979,7 +2910,6 @@ chamsSection:CreateSlider({
     Callback = function(v) G.ESPChamsTransparency = v / 100 end
 })
 
--- China Hat section
 local hatSection = visualsPage:CreateSection({ Name = "CHINA HAT", Size = 310, Side = "Right" })
 
 hatSection:CreateToggle({
@@ -3026,7 +2956,6 @@ hatSection:CreateToggle({
     Callback = function(v) G.ChinaHatFollowTop = v end
 })
 
--- Misc visuals
 local miscVisualsSection = visualsPage:CreateSection({ Name = "MISC", Size = 120, Side = "Right" })
 
 miscVisualsSection:CreateToggle({
@@ -3052,10 +2981,6 @@ miscVisualsSection:CreateColorpicker({
     State = Color3.fromRGB(255, 0, 0),
     Callback = function(color) G.PrefixColor = color; if G.PrefixEnabled then applyPrefix() end end
 })
-
-------------------------------------------------------------------------
--- 21d. MISC PAGE
-------------------------------------------------------------------------
 
 local miscExploitsSection = miscPage:CreateSection({ Name = "EXPLOITS", Size = 200, Side = "Left" })
 
@@ -3116,13 +3041,48 @@ miscExploitsSection:CreateSlider({
     Callback = function(v) G.AutoRejoinDelay = v / 1000 end
 })
 
--- QOL Section
-local qolSection = miscPage:CreateSection({ Name = "QOL", Size = 250, Side = "Left" })
+local qolSection = miscPage:CreateSection({ Name = "QOL", Size = 500, Side = "Left" })
 
 qolSection:CreateToggle({
     Name = "Watermark",
     State = true,
     Callback = function(v) G.WatermarkEnabled = v end
+})
+
+qolSection:CreateToggle({
+    Name = "Show FPS",
+    State = true,
+    Callback = function(v) G.WatermarkShowFPS = v end
+})
+
+qolSection:CreateToggle({
+    Name = "Show Ping",
+    State = true,
+    Callback = function(v) G.WatermarkShowPing = v end
+})
+
+qolSection:CreateToggle({
+    Name = "Show Display Name",
+    State = true,
+    Callback = function(v) G.WatermarkShowName = v end
+})
+
+qolSection:CreateToggle({
+    Name = "Show Session Time",
+    State = true,
+    Callback = function(v) G.WatermarkShowTime = v end
+})
+
+qolSection:CreateToggle({
+    Name = "Show Active Features",
+    State = true,
+    Callback = function(v) G.WatermarkShowFeatures = v end
+})
+
+qolSection:CreateToggle({
+    Name = "Show Version",
+    State = true,
+    Callback = function(v) G.WatermarkShowVersion = v end
 })
 
 qolSection:CreateToggle({
@@ -3149,7 +3109,6 @@ qolSection:CreateColorpicker({
     Callback = function(color) G.CrosshairColor = color end
 })
 
--- Config Section
 local configSection = miscPage:CreateSection({ Name = "CONFIG", Size = 150, Side = "Right" })
 
 configSection:CreateButton({
@@ -3182,7 +3141,6 @@ configSection:CreateButton({
     end
 })
 
--- Info section
 local infoSection = miscPage:CreateSection({ Name = "INFO", Size = 150, Side = "Right" })
 
 infoSection:CreateButton({
@@ -3193,22 +3151,34 @@ infoSection:CreateButton({
     end
 })
 
-infoSection:CreateButton({
-    Name = "Discord",
-    Callback = function()
-        pcall(function() setclipboard("https://discord.gg/sMv9YeXbYR") end)
-        print("[V2] Discord link copied")
-    end
-})
+infoSection:CreateLabel({ Name = "Version 2.1", Text = "v2.1 — NeverHit Modified" })
 
-infoSection:CreateButton({
-    Name = "Version: 2.0",
-    Callback = function() print("[NeverHit V2] Version 2.0") end
-})
-
-------------------------------------------------------------------------
--- 21e. SPECIAL PRESETS PAGE
-------------------------------------------------------------------------
+SyncUIFromGlobals = function()
+    pcall(function()
+        if UIRefs.aaToggle then UIRefs.aaToggle:Set(G.AntiAimEnabled) end
+        if UIRefs.baseYaw then UIRefs.baseYaw:Set(G.BaseYawantiaim) end
+        if UIRefs.yawLeft then UIRefs.yawLeft:Set(G.leftantiaim) end
+        if UIRefs.yawRight then UIRefs.yawRight:Set(G.rightantiaim) end
+        if UIRefs.pitch then UIRefs.pitch:Set(G.Pitchantiaim) end
+        if UIRefs.bodyYaw then UIRefs.bodyYaw:Set(G.BodyYawantiaim) end
+        if UIRefs.jitter then UIRefs.jitter:Set(G.antiaimjitter) end
+        if UIRefs.delay then UIRefs.delay:Set(G.antiaimdelayness * 1000) end
+        if UIRefs.updateRate then UIRefs.updateRate:Set(G.UnhittableRate) end
+        if UIRefs.minDesync then UIRefs.minDesync:Set(G.UnhittableMinDesync) end
+        if UIRefs.desyncBias then UIRefs.desyncBias:Set(G.UnhittableDesyncBias) end
+        if UIRefs.pitchRange then UIRefs.pitchRange:Set(G.UnhittablePitchRange) end
+        if UIRefs.flipDelay then UIRefs.flipDelay:Set(G.UnhittableFlipDelay * 1000) end
+        if UIRefs.resolverToggle then UIRefs.resolverToggle:Set(G.CustomResolverEnabled) end
+        if UIRefs.lerpToggle then UIRefs.lerpToggle:Set(G.DivineLuaLERPEnabled) end
+        if UIRefs.lerpSpeed then UIRefs.lerpSpeed:Set(G.DivineLuaLERPSpeed * 100) end
+        if UIRefs.biasAngle then UIRefs.biasAngle:Set(math.deg(G.DivineLuaBIASAngle)) end
+        if UIRefs.asymmetricPoles then UIRefs.asymmetricPoles:Set(G.AAAsymmetricPoles) end
+        if UIRefs.microNoise then UIRefs.microNoise:Set(G.AAMicroNoise) end
+        if UIRefs.perShotPitch then UIRefs.perShotPitch:Set(G.AAPerShotPitch) end
+        if UIRefs.baseYawHook then UIRefs.baseYawHook:Set(G.BaseYawHookEnabled) end
+        if UIRefs.trueRandom then UIRefs.trueRandom:Set(G.TrueRandomAA) end
+    end)
+end
 
 local presetHelperSection = presetPage:CreateSection({ Name = "INFO", Size = 160, Side = "Left" })
 
@@ -3220,11 +3190,9 @@ local function ApplyPreset(preset)
     DisableAllAAModes()
     G.AAdirty = true
     for k, v in pairs(preset) do G[k] = v end
+    SyncUIFromGlobals()
 end
 
--- -----------------------------------------------------------------
--- TRYHARD presets (left)
--- -----------------------------------------------------------------
 local tryhardSection = presetPage:CreateSection({ Name = "TRYHARD", Size = 400, Side = "Left" })
 
 tryhardSection:CreateButton({
@@ -3331,9 +3299,6 @@ tryhardSection:CreateButton({
     end
 })
 
--- -----------------------------------------------------------------
--- CASUAL / SITUATIONAL presets (right)
--- -----------------------------------------------------------------
 local casualSection = presetPage:CreateSection({ Name = "CASUAL", Size = 400, Side = "Right" })
 
 casualSection:CreateButton({
@@ -3456,10 +3421,6 @@ casualSection:CreateButton({
     end
 })
 
-------------------------------------------------------------------------
--- 22. AUTO-REJOIN (improved with cooldown + smart mode)
-------------------------------------------------------------------------
-
 local function handleAutoRejoin()
     if not G.AutoRejoin then return end
     if G.PanicEnabled then return end
@@ -3490,10 +3451,6 @@ end
 
 game:GetService("GuiService").ErrorMessageChanged:Connect(handleAutoRejoin)
 
-------------------------------------------------------------------------
--- 22b. SESSION STATS
-------------------------------------------------------------------------
-
 G.SessionStats = {
     shotsFired = 0,
     estimatedHits = 0,
@@ -3501,10 +3458,6 @@ G.SessionStats = {
     modeBreakdown = {},
     lastShotTime = 0,
 }
-
-------------------------------------------------------------------------
--- 22c. KEYBIND SYSTEM
-------------------------------------------------------------------------
 
 local keybindMap = {}
 
@@ -3519,7 +3472,6 @@ game:GetService("UserInputService").InputBegan:Connect(function(input, gp)
     end
 end)
 
--- Panic Key (F6)
 registerKeybind(Enum.KeyCode.F6, function()
     G.PanicEnabled = not G.PanicEnabled
     if G.PanicEnabled then
@@ -3544,10 +3496,6 @@ registerKeybind(Enum.KeyCode.F6, function()
     end
 end)
 
-------------------------------------------------------------------------
--- 22d. WATERMARK
-------------------------------------------------------------------------
-
 task.spawn(function()
     local wmGui = Instance.new("ScreenGui")
     wmGui.Name = "NeverHitWatermark"
@@ -3557,28 +3505,62 @@ task.spawn(function()
     wmGui.Parent = PlayerGui
 
     local wmFrame = Instance.new("Frame")
-    wmFrame.Size = UDim2.new(0, 200, 0, 22)
-    wmFrame.Position = UDim2.new(1, -210, 0, 8)
+    wmFrame.Size = UDim2.new(0, 320, 0, 22)
+    wmFrame.Position = UDim2.new(1, -330, 0, 8)
     wmFrame.BackgroundColor3 = BG
-    wmFrame.BackgroundTransparency = 0.3
+    wmFrame.BackgroundTransparency = 0.2
     wmFrame.BorderSizePixel = 0
     wmFrame.Parent = wmGui
+
+    local wmCorner = Instance.new("UICorner")
+    wmCorner.CornerRadius = UDim.new(0, 3)
+    wmCorner.Parent = wmFrame
 
     local wmStroke = Instance.new("UIStroke")
     wmStroke.Color = Color3.fromRGB(40, 40, 40)
     wmStroke.Thickness = 1
     wmStroke.Parent = wmFrame
 
+    local wmAccent = Instance.new("Frame")
+    wmAccent.Size = UDim2.new(0, 2, 1, 0)
+    wmAccent.Position = UDim2.new(0, 0, 0, 0)
+    wmAccent.BackgroundColor3 = ACCENT
+    wmAccent.BorderSizePixel = 0
+    wmAccent.Parent = wmFrame
+
     local wmText = Instance.new("TextLabel")
     wmText.Size = UDim2.new(1, -10, 1, 0)
-    wmText.Position = UDim2.new(0, 5, 0, 0)
+    wmText.Position = UDim2.new(0, 10, 0, 0)
     wmText.BackgroundTransparency = 1
-    wmText.Text = "NeverHit V2"
+    wmText.Text = ""
     wmText.TextColor3 = TEXT
     wmText.TextSize = 10
     wmText.Font = Enum.Font.Code
     wmText.TextXAlignment = Enum.TextXAlignment.Left
     wmText.Parent = wmFrame
+
+    local dragging, dragInput, dragStart, startPos
+    wmFrame.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = true
+            dragStart = input.Position
+            startPos = wmFrame.Position
+            input.Changed:Connect(function()
+                if input.UserInputState == Enum.UserInputState.End then dragging = false end
+            end)
+        end
+    end)
+    wmFrame.InputChanged:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+            dragInput = input
+        end
+    end)
+    game:GetService("UserInputService").InputChanged:Connect(function(input)
+        if input == dragInput and dragging then
+            local delta = input.Position - dragStart
+            wmFrame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+        end
+    end)
 
     RunService.RenderStepped:Connect(function(dt)
         if not G.WatermarkEnabled or G.PanicEnabled then
@@ -3587,25 +3569,50 @@ task.spawn(function()
         end
         wmGui.Enabled = true
 
-        local fps = math.floor(1 / dt)
-        local ping = math.floor(LocalPlayer:GetNetworkPing() * 1000)
-        local elapsed = math.floor(os.clock() - G.SessionStats.startTime)
-        local mins = math.floor(elapsed / 60)
-        local secs = elapsed % 60
+        local parts = {}
+        parts[#parts + 1] = "NeverHit V2"
 
-        local features = ""
-        if G.RageBotEnabled then features = features .. "R " end
-        if G.AntiAimEnabled then features = features .. "AA " end
-        if G.ESPEnabled then features = features .. "E " end
-        if G.CustomResolverEnabled then features = features .. "RS " end
+        if G.WatermarkShowName then
+            local dn = LocalPlayer.DisplayName or LocalPlayer.Name
+            parts[#parts + 1] = dn
+        end
 
-        wmText.Text = string.format("NeverHit V2 | %dfps | %dms | %02d:%02d | %s", fps, ping, mins, secs, features)
+        if G.WatermarkShowFPS then
+            parts[#parts + 1] = math.floor(1 / dt) .. " fps"
+        end
+
+        if G.WatermarkShowPing then
+            parts[#parts + 1] = math.floor(LocalPlayer:GetNetworkPing() * 1000) .. " ms"
+        end
+
+        if G.WatermarkShowTime then
+            local elapsed = math.floor(os.clock() - G.SessionStats.startTime)
+            local mins = math.floor(elapsed / 60)
+            local secs = elapsed % 60
+            parts[#parts + 1] = string.format("%02d:%02d", mins, secs)
+        end
+
+        if G.WatermarkShowFeatures then
+            local features = ""
+            if G.RageBotEnabled then features = features .. "R " end
+            if G.AntiAimEnabled then features = features .. "AA " end
+            if G.ESPEnabled then features = features .. "E " end
+            if G.CustomResolverEnabled then features = features .. "RS " end
+            if features ~= "" then parts[#parts + 1] = features:sub(1, -2) end
+        end
+
+        if G.WatermarkShowVersion then
+            parts[#parts + 1] = "v2.1"
+        end
+
+        local txt = table.concat(parts, "  |  ")
+        wmText.Text = txt
+
+        local textSize = game:GetService("TextService"):GetTextSize(txt, wmText.TextSize, wmText.Font, Vector2.new(9999, 22))
+        local newWidth = math.clamp(textSize.X + 24, 140, 500)
+        wmFrame.Size = UDim2.new(0, newWidth, 0, 22)
     end)
 end)
-
-------------------------------------------------------------------------
--- 22e. CROSSHAIR
-------------------------------------------------------------------------
 
 task.spawn(function()
     local useImmediate = DrawingImmediate and DrawingImmediate.GetPaint
@@ -3656,19 +3663,7 @@ task.spawn(function()
     end)
 end)
 
-------------------------------------------------------------------------
--- 22f. FORCE HIT TRACKING (for session stats + dynamic hitpart)
-------------------------------------------------------------------------
-
-------------------------------------------------------------------------
--- 22g. AUTO MODE SWITCHING
-------------------------------------------------------------------------
-
 local lastShootTime = 0
-
-------------------------------------------------------------------------
--- 23. CLEANUP
-------------------------------------------------------------------------
 
 getgenv().ImAnewOne = true
 task.delay(2, function()
@@ -3679,14 +3674,12 @@ task.delay(2, function()
     end
 end)
 
--- Remove loading screen
 pcall(function()
     setLoadingStatus("Done!")
     task.wait(0.5)
     loadingGui:Destroy()
 end)
 
--- Welcome notification
 local displayName = LocalPlayer.DisplayName or LocalPlayer.Name
 notify("NeverHit V2", "Welcome back, " .. displayName .. "!", 4)
 
