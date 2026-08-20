@@ -2345,6 +2345,7 @@ local combatPage = window:CreatePage({ Icon = "rbxassetid://8547236654" })
 local aaPage = window:CreatePage({ Icon = "rbxassetid://8547256547" })
 local visualsPage = window:CreatePage({ Icon = "rbxassetid://8547254518" })
 local miscPage = window:CreatePage({ Icon = "rbxassetid://8547249956" })
+local presetPage = window:CreatePage({ Icon = "rbxassetid://8547250556" })
 
 ------------------------------------------------------------------------
 -- 21a. COMBAT PAGE
@@ -3030,6 +3031,256 @@ infoSection:CreateButton({
 infoSection:CreateButton({
     Name = "Version: 2.0",
     Callback = function() print("[NeverHit V2] Version 2.0") end
+})
+
+------------------------------------------------------------------------
+-- 21e. SPECIAL PRESETS PAGE
+------------------------------------------------------------------------
+
+local presetHelperSection = presetPage:CreateSection({ Name = "INFO", Size = 160, Side = "Left" })
+
+presetHelperSection:CreateLabel({ Text = "One-click loadouts for AA + Resolver." })
+presetHelperSection:CreateLabel({ Text = "ESP and misc are up to you." })
+presetHelperSection:CreateLabel({ Text = "Pick one, done." })
+
+local function ApplyPreset(preset)
+    DisableAllAAModes()
+    G.AAdirty = true
+    for k, v in pairs(preset) do G[k] = v end
+end
+
+-- -----------------------------------------------------------------
+-- TRYHARD presets (left)
+-- -----------------------------------------------------------------
+local tryhardSection = presetPage:CreateSection({ Name = "TRYHARD", Size = 400, Side = "Left" })
+
+tryhardSection:CreateButton({
+    Name = "1. Braindead (True Random)",
+    Callback = function()
+        ApplyPreset({
+            TrueRandomAA = true,
+            AAAsymmetricPoles = true,
+            AAMicroNoise = true,
+            BodyYawantiaim = 63,
+            Pitchantiaim = -70,
+            BaseYawantiaim = 0,
+            antiaimjitter = 157,
+            antiaimdelayness = 0,
+            RageBotAutoPrediction = true,
+            HumanizeHitPos = true,
+            CustomResolverEnabled = true,
+        })
+        notify("NeverHit V2", "Preset: Braindead loaded", 2)
+    end
+})
+
+tryhardSection:CreateButton({
+    Name = "2. Comp Stomper (Compound Desync)",
+    Callback = function()
+        ApplyPreset({
+            CompoundDesyncEnabled = true,
+            CompoundYawAmp = 170,
+            CompoundBodyAmp = 67,
+            AAAsymmetricPoles = true,
+            AAMicroNoise = true,
+            AAPerShotPitch = true,
+            BodyYawantiaim = 67,
+            Pitchantiaim = -75,
+            BaseYawantiaim = 0,
+            RageBotAutoPrediction = true,
+            HumanizeHitPos = true,
+            CustomResolverEnabled = true,
+        })
+        notify("NeverHit V2", "Preset: Comp Stomper loaded", 2)
+    end
+})
+
+tryhardSection:CreateButton({
+    Name = "3. Anti-Resolver (Resolver Bait)",
+    Callback = function()
+        ApplyPreset({
+            ResolverBaitEnabled = true,
+            CustomResolverEnabled = true,
+            ResolverModePerEnemy = true,
+            DivineLuaCorrection = true,
+            AAMicroNoise = true,
+            BodyYawantiaim = 55,
+            Pitchantiaim = -60,
+            BaseYawantiaim = 0,
+            antiaimjitter = 140,
+            antiaimdelayness = 0,
+            RageBotAutoPrediction = true,
+            HumanizeHitPos = true,
+        })
+        notify("NeverHit V2", "Preset: Anti-Resolver loaded", 2)
+    end
+})
+
+tryhardSection:CreateButton({
+    Name = "4. Adaptive Sweat",
+    Callback = function()
+        ApplyPreset({
+            AdaptiveAAEnabled = true,
+            AAAsymmetricPoles = true,
+            AAMicroNoise = true,
+            BodyYawantiaim = 60,
+            Pitchantiaim = -70,
+            BaseYawantiaim = 0,
+            antiaimjitter = 150,
+            antiaimdelayness = 0,
+            RageBotAutoPrediction = true,
+            HumanizeHitPos = true,
+            CustomResolverEnabled = true,
+            DivineLuaCorrection = true,
+        })
+        notify("NeverHit V2", "Preset: Adaptive Sweat loaded", 2)
+    end
+})
+
+tryhardSection:CreateButton({
+    Name = "5. Golden Sweat (Golden Ratio)",
+    Callback = function()
+        ApplyPreset({
+            GoldenRatioEnabled = true,
+            AAAsymmetricPoles = true,
+            AAMicroNoise = true,
+            AAPerShotPitch = true,
+            BodyYawantiaim = 65,
+            Pitchantiaim = -72,
+            BaseYawantiaim = 0,
+            antiaimjitter = 160,
+            antiaimdelayness = 0,
+            RageBotAutoPrediction = true,
+            HumanizeHitPos = true,
+            CustomResolverEnabled = true,
+        })
+        notify("NeverHit V2", "Preset: Golden Sweat loaded", 2)
+    end
+})
+
+-- -----------------------------------------------------------------
+-- CASUAL / SITUATIONAL presets (right)
+-- -----------------------------------------------------------------
+local casualSection = presetPage:CreateSection({ Name = "CASUAL", Size = 400, Side = "Right" })
+
+casualSection:CreateButton({
+    Name = "6. Old School NH",
+    Callback = function()
+        ApplyPreset({
+            typeofantiaim = "Jitter",
+            BaseYawantiaim = 0,
+            leftantiaim = -137,
+            rightantiaim = 143,
+            Pitchantiaim = -49,
+            BodyYawantiaim = 67,
+            antiaimjitter = 157,
+            antiaimdelayness = 0,
+            antiaimrandomness = 0,
+            RageBotAutoPrediction = true,
+            HumanizeHitPos = true,
+            CustomResolverEnabled = true,
+        })
+        notify("NeverHit V2", "Preset: Old School NH loaded", 2)
+    end
+})
+
+casualSection:CreateButton({
+    Name = "7. Low FPS Friendly",
+    Callback = function()
+        ApplyPreset({
+            StutteredStaticEnabled = true,
+            AAMicroNoise = true,
+            BodyYawantiaim = 55,
+            Pitchantiaim = -65,
+            BaseYawantiaim = 0,
+            antiaimjitter = 130,
+            antiaimdelayness = 0,
+            RageBotAutoPrediction = true,
+            HumanizeHitPos = true,
+            CustomResolverEnabled = true,
+        })
+        notify("NeverHit V2", "Preset: Low FPS loaded", 2)
+    end
+})
+
+casualSection:CreateButton({
+    Name = "8. Gray Zone Dodge",
+    Callback = function()
+        ApplyPreset({
+            GrayZoneEnabled = true,
+            AAAsymmetricPoles = true,
+            AAMicroNoise = true,
+            BodyYawantiaim = 60,
+            Pitchantiaim = -68,
+            BaseYawantiaim = 0,
+            antiaimjitter = 150,
+            antiaimdelayness = 0,
+            RageBotAutoPrediction = true,
+            HumanizeHitPos = true,
+            CustomResolverEnabled = true,
+        })
+        notify("NeverHit V2", "Preset: Gray Zone loaded", 2)
+    end
+})
+
+casualSection:CreateButton({
+    Name = "9. Freq Sweeper",
+    Callback = function()
+        ApplyPreset({
+            FrequencySweepEnabled = true,
+            AAAsymmetricPoles = true,
+            AAMicroNoise = true,
+            BodyYawantiaim = 62,
+            Pitchantiaim = -70,
+            BaseYawantiaim = 0,
+            antiaimjitter = 155,
+            antiaimdelayness = 0,
+            RageBotAutoPrediction = true,
+            HumanizeHitPos = true,
+            CustomResolverEnabled = true,
+        })
+        notify("NeverHit V2", "Preset: Freq Sweeper loaded", 2)
+    end
+})
+
+casualSection:CreateButton({
+    Name = "10. Multi-Pole 5",
+    Callback = function()
+        ApplyPreset({
+            MultiPoleEnabled = true,
+            MultiPoleCount = 5,
+            AAAsymmetricPoles = true,
+            AAMicroNoise = true,
+            BodyYawantiaim = 60,
+            Pitchantiaim = -68,
+            BaseYawantiaim = 0,
+            antiaimjitter = 150,
+            antiaimdelayness = 0,
+            RageBotAutoPrediction = true,
+            HumanizeHitPos = true,
+            CustomResolverEnabled = true,
+        })
+        notify("NeverHit V2", "Preset: Multi-Pole 5 loaded", 2)
+    end
+})
+
+casualSection:CreateButton({
+    Name = "11. Full Unhittable",
+    Callback = function()
+        ApplyPreset({
+            UnhittableEngine = true,
+            UnhittableRate = 60,
+            UnhittableMinDesync = 40,
+            UnhittableDesyncBias = 65,
+            UnhittablePitchRange = 35,
+            UnhittableFlipDelay = 0.008,
+            AAMicroNoise = true,
+            RageBotAutoPrediction = true,
+            HumanizeHitPos = true,
+            CustomResolverEnabled = true,
+        })
+        notify("NeverHit V2", "Preset: Full Unhittable loaded", 2)
+    end
 })
 
 ------------------------------------------------------------------------
