@@ -3797,9 +3797,6 @@ casualSection:CreateButton({
         notify("NeverHit V2", "Preset: Cheatbreaker loaded", 2)
     end
 })
-        notify("NeverHit V2", "Preset: Full Unhittable loaded", 2)
-    end
-})
 
 local function handleAutoRejoin()
     if not G.AutoRejoin then return end
