@@ -435,17 +435,20 @@ local function aaRandom()
     return splitmix()
 end
 
-local cipherCache = { ready = false, enc = nil, decPat = nil, decLookup = nil }
+-- The game rotates SuperSecretKey every 30s with a fully fresh dict (0 junk overlap
+-- between versions), so caching on a ready flag goes stale within one rotation and
+-- every encrypted arg becomes undecryptable garbage server-side. Key the cache on
+-- the raw attribute string instead -- same approach Penablox.lua uses.
+local cipherCache = { key = false, enc = nil, decPat = nil, decLookup = nil }
 
 local function getCipher()
-    if cipherCache.ready then return cipherCache.enc end
     local ok, imgLabel = pcall(function()
         return game:GetService("TextChatService").BubbleChatConfiguration:FindFirstChild("ImageLabel")
     end)
     if not ok or not imgLabel then return nil end
     local key = imgLabel:GetAttribute("SuperSecretKey")
     if type(key) ~= "string" or key == "" then return nil end
-    if cipherCache.ready then return cipherCache.enc end
+    if cipherCache.key == key then return cipherCache.enc end
 
     local s, data = pcall(game:GetService("HttpService").JSONDecode, game:GetService("HttpService"), key)
     if not s or type(data) ~= "table" then return nil end
@@ -469,7 +472,7 @@ local function getCipher()
         pats[i] = junk:gsub("([^%w])", "%%%1")
     end
 
-    cipherCache.ready = true
+    cipherCache.key = key
     cipherCache.enc = enc
     cipherCache.decLookup = decLookup
     cipherCache.decPat = #pats > 0 and table.concat(pats, "|") or nil
@@ -495,22 +498,8 @@ local function decryptstring(text)
     return text:gsub(cipherCache.decPat, cipherCache.decLookup)
 end
 
-local Players = game:GetService("Players")
-local Camera = workspace.CurrentCamera
-local RunService = game:GetService("RunService")
-local LocalPlayer = Players.LocalPlayer
-
-local function globalexists(name)
-    if type(getgenv) == "function" then
-        local ok, env = pcall(getgenv)
-        if ok and type(env) == "table" and env[name] ~= nil then return true end
-    end
-    if type(getrenv) == "function" then
-        local ok, env = pcall(getrenv)
-        if ok and type(env) == "table" and env[name] ~= nil then return true end
-    end
-    return false
-end
+RunService = RunService or game:GetService("RunService")
+Camera = Camera or workspace.CurrentCamera
 
 local function ResolvePlayer()
     local myRoot = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
@@ -1484,9 +1473,13 @@ task.spawn(function()
         local yaw = goldenPhase % (math.pi * 2)
         local desync = math.cos(goldenPhase * 1.618) * 70
         local pitch = -(45 + math.sin(goldenPhase * 2.414) * 30)
-        AAHandler.SendYawJitter(nil, "Static", yaw, 0, 0, 0, 0, 0)
+        AAHandler.SendYawJitter(nil, "Static", math.deg(yaw), 0, 0, 0, 0, 0)
         AAHandler.SendBodyYaw(nil, desync)
-        AAHandler.SendPitchMode(nil, "Static", pitch, 0, 0, 0, 0, 0)
+        if aaRandom() > 0.7 then
+            AAHandler.SendPitchMode(nil, "Sway", pitch, -80, -10, 2.0, 0, 0)
+        else
+            AAHandler.SendPitchMode(nil, "Static", pitch, 0, 0, 0, 0, 0)
+        end
     end
 
     local multiPoleIdx = 1
@@ -1521,7 +1514,14 @@ task.spawn(function()
         local desync = 40 + math.sin(phase * math.pi * 2) * 30
         AAHandler.SendBodyYaw(nil, desync)
         local pitch = -(35 + math.cos(phase * math.pi * 1.5) * 25)
-        AAHandler.SendPitchMode(nil, "Static", pitch, 0, 0, 0, 0, 0)
+        local pitchMode = phase < 0.33 and "Static" or (phase < 0.66 and "Sway" or "3 Angles")
+        if pitchMode == "Sway" then
+            AAHandler.SendPitchMode(nil, "Sway", pitch, -80, -10, 1.5 + phase * 2, 0, 0)
+        elseif pitchMode == "3 Angles" then
+            AAHandler.SendPitchMode(nil, "3 Angles", pitch, 0, 0, 0, 0, 0)
+        else
+            AAHandler.SendPitchMode(nil, "Static", pitch, 0, 0, 0, 0, 0)
+        end
     end
 
     local t1, t2, t3 = 0, 0, 0
@@ -1536,9 +1536,10 @@ task.spawn(function()
         local yaw = math.sin(t1) * (G.CompoundYawAmp or 157)
         local body = math.sin(t2) * (G.CompoundBodyAmp or 60)
         local pitch = -(45 + math.sin(t3) * 35)
-        AAHandler.SendYawJitter(nil, "Static", 0, -yaw, yaw, 180, 0, 0)
+        local jitterAmt = aaRandom() > 0.6 and (50 + aaRandom() * 80) or 0
+        AAHandler.SendYawJitter(nil, "Jitter", 0, -yaw, yaw, 180, 0, jitterAmt)
         AAHandler.SendBodyYaw(nil, body)
-        AAHandler.SendPitchMode(nil, "Static", pitch, 0, 0, 0, 0, 0)
+        AAHandler.SendPitchMode(nil, "Sway", pitch, -80, -10, 1.2, 0, 0)
     end
 
     local stutterToggle = false
@@ -1546,12 +1547,13 @@ task.spawn(function()
     local function SendStutteredStatic()
         stutterToggle = not stutterToggle
         if stutterToggle then
-            AAHandler.SendYawJitter(nil, "Static", G.leftantiaim or 0, 0, 0, 0, 0, 0)
+            AAHandler.SendYawJitter(nil, "Jitter", G.leftantiaim or 0, 0, 0, G.antiaimjitter or 157, 0.008, 0)
             AAHandler.SendBodyYaw(nil, G.BodyYawantiaim or 60)
             AAHandler.SendPitchMode(nil, "Static", G.Pitchantiaim or -55, 0, 0, 0, 0, 0)
         else
-            local flipAngle = G.leftantiaim + 180
-            AAHandler.SendYawJitter(nil, "Static", flipAngle, 0, 0, 0, 0, 0)
+            local flipAngle = (G.leftantiaim or 0) + 180
+            local jitterAmt = 60 + aaRandom() * 60
+            AAHandler.SendYawJitter(nil, "Jitter", flipAngle, -jitterAmt, jitterAmt, 160, 0.012, 0)
             AAHandler.SendBodyYaw(nil, -(G.BodyYawantiaim or 60))
             AAHandler.SendPitchMode(nil, "Static", -(G.Pitchantiaim or -55), 0, 0, 0, 0, 0)
         end
@@ -1562,35 +1564,59 @@ task.spawn(function()
     for i = 0, 7 do GRAY_ZONE_8[#GRAY_ZONE_8 + 1] = math.rad(i * 45 + 22.5) end
     for i = 0, 15 do GRAY_ZONE_16[#GRAY_ZONE_16 + 1] = math.rad(i * 22.5 + 11.25) end
     local grayIdx = 1
+    local grayUse16 = false
 
     local function SendGrayZone()
-        local angle = GRAY_ZONE_8[grayIdx]
-        grayIdx = (grayIdx % #GRAY_ZONE_8) + 1
+        local pool = grayUse16 and GRAY_ZONE_16 or GRAY_ZONE_8
+        local angle = pool[grayIdx]
+        grayIdx = (grayIdx % #pool) + 1
+        if grayIdx == 1 then grayUse16 = not grayUse16 end
+        local desync = 40 + aaRandom() * 40
+        if aaRandom() > 0.5 then desync = -desync end
+        local pitch = -(30 + aaRandom() * 50)
         AAHandler.SendYawJitter(nil, "Static", math.deg(angle), 0, 0, 0, 0, 0)
-        AAHandler.SendBodyYaw(nil, 60)
-        AAHandler.SendPitchMode(nil, "Static", -55, 0, 0, 0, 0, 0)
+        AAHandler.SendBodyYaw(nil, desync)
+        AAHandler.SendPitchMode(nil, "Static", pitch, 0, 0, 0, 0, 0)
     end
 
     local baitPhase = 0
     local BAIT_HOLD_FRAMES = 18
 
+    local BAIT_PATTERNS = {
+        { yawA = 67, bodyA = 67, pitchA = -50, yawB = 0, bodyB = -70, pitchB = -80 },
+        { yawA = -137, bodyA = 55, pitchA = -35, yawB = 43, bodyB = -80, pitchB = -75 },
+        { yawA = 90, bodyA = 85, pitchA = -45, yawB = -90, bodyB = -85, pitchB = -60 },
+        { yawA = 157, bodyA = 70, pitchA = -25, yawB = -23, bodyB = -65, pitchB = -70 },
+    }
+    local baitPattern = BAIT_PATTERNS[1]
+    local baitHoldTarget = BAIT_HOLD_FRAMES
+
     local function SendResolverBait()
-        baitPhase = (baitPhase + 1) % (BAIT_HOLD_FRAMES * 2)
-        if baitPhase < BAIT_HOLD_FRAMES then
-            AAHandler.SendYawJitter(nil, "Static", 67, 0, 0, 0, 0, 0)
-            AAHandler.SendBodyYaw(nil, 67)
-            AAHandler.SendPitchMode(nil, "Static", -50, 0, 0, 0, 0, 0)
+        baitPhase = baitPhase + 1
+        if baitPhase >= baitHoldTarget then
+            baitPhase = 0
+            baitPattern = BAIT_PATTERNS[math.floor(aaRandom() * #BAIT_PATTERNS) + 1]
+            baitHoldTarget = BAIT_HOLD_FRAMES + math.floor(aaRandom() * 12)
+        end
+
+        local halfway = math.floor(baitHoldTarget * 0.45 + aaRandom() * baitHoldTarget * 0.1)
+        if baitPhase < halfway then
+            AAHandler.SendYawJitter(nil, "Static", baitPattern.yawA, 0, 0, 0, 0, 0)
+            AAHandler.SendBodyYaw(nil, baitPattern.bodyA)
+            AAHandler.SendPitchMode(nil, "Static", baitPattern.pitchA, 0, 0, 0, 0, 0)
         else
-            AAHandler.SendYawJitter(nil, "Static", 0, 0, 0, 0, 0, 0)
-            AAHandler.SendBodyYaw(nil, -70)
-            AAHandler.SendPitchMode(nil, "Static", -80, 0, 0, 0, 0, 0)
+            AAHandler.SendYawJitter(nil, "Static", baitPattern.yawB, 0, 0, 0, 0, 0)
+            AAHandler.SendBodyYaw(nil, baitPattern.bodyB)
+            AAHandler.SendPitchMode(nil, "Static", baitPattern.pitchB, 0, 0, 0, 0, 0)
         end
     end
 
     local adaptiveBlacklist = {}
     local lastAdaptiveHP = 100
-    local adaptiveCycleModes = {"GoldenRatio", "MultiPole", "TrueRandom"}
+    local adaptiveCycleModes = {"GoldenRatio", "MultiPole", "TrueRandom", "Cheatbreaker"}
     local adaptiveCycleIdx = 1
+    local adaptiveTime = 0
+    local ADAPTIVE_PITCH_MODES = {"Static", "Sway", "3 Angles"}
 
     local function CycleAdaptiveMode()
         adaptiveCycleIdx = (adaptiveCycleIdx % #adaptiveCycleModes) + 1
@@ -1598,36 +1624,47 @@ task.spawn(function()
         G.GoldenRatioEnabled = (mode == "GoldenRatio")
         G.MultiPoleEnabled = (mode == "MultiPole")
         G.TrueRandomAA = (mode == "TrueRandom")
+        G.CheatbreakerEnabled = (mode == "Cheatbreaker")
         G.UnhittableEngine = false
         notify("NeverHit V2", "Adaptive: switched to " .. mode, 2)
     end
 
     local function SendAdaptive(dt)
+        adaptiveTime = adaptiveTime + dt
         local hum = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
         if hum and hum.Health < lastAdaptiveHP then
             local hrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
             if hrp then
                 local realYaw = math.atan2(hrp.CFrame.LookVector.X, hrp.CFrame.LookVector.Z)
                 adaptiveBlacklist[#adaptiveBlacklist + 1] = realYaw
-                if #adaptiveBlacklist >= 2 then
+                if #adaptiveBlacklist >= 3 then
                     CycleAdaptiveMode()
                     table.clear(adaptiveBlacklist)
+                    adaptiveTime = 0
                 end
             end
         end
         if hum then lastAdaptiveHP = hum.Health end
 
-        local yaw = math.rad(90 + math.sin(os.clock() * 1.5) * 60)
+        local yaw = math.rad(90 + math.sin(adaptiveTime * 1.5) * 60)
         for _, blocked in ipairs(adaptiveBlacklist) do
-            if math.abs(math.atan2(math.sin(yaw - blocked), math.cos(yaw - blocked))) < math.rad(20) then
-                yaw = yaw + math.rad(45)
+            if math.abs(math.atan2(math.sin(yaw - blocked), math.cos(yaw - blocked))) < math.rad(25) then
+                yaw = yaw + math.rad(45 + aaRandom() * 30)
             end
         end
-        local desync = 50 + math.sin(os.clock() * 2) * 30
-        local pitch = -(45 + math.cos(os.clock() * 1.8) * 25)
-        AAHandler.SendYawJitter(nil, "Static", math.deg(yaw), 0, 0, 0, 0, 0)
+        local desync = 50 + math.sin(adaptiveTime * 2) * 30
+        local pitch = -(45 + math.cos(adaptiveTime * 1.8) * 25)
+        local pitchMode = ADAPTIVE_PITCH_MODES[math.floor(aaRandom() * #ADAPTIVE_PITCH_MODES) + 1]
+
+        local jitterMode = aaRandom() > 0.4 and "Jitter" or "Static"
+        local jitterAmt = jitterMode == "Jitter" and (40 + aaRandom() * 80) or 0
+        AAHandler.SendYawJitter(nil, jitterMode, math.deg(yaw), -jitterAmt, jitterAmt, 120, 0.005 + aaRandom() * 0.01, 0)
         AAHandler.SendBodyYaw(nil, desync)
-        AAHandler.SendPitchMode(nil, "Static", pitch, 0, 0, 0, 0, 0)
+        if pitchMode == "Sway" then
+            AAHandler.SendPitchMode(nil, "Sway", pitch, -80, -10, 1.5 + aaRandom(), 0, 0)
+        else
+            AAHandler.SendPitchMode(nil, pitchMode, pitch, 0, 0, 0, 0, 0)
+        end
     end
 
     local cheatbreakerTick = 0
@@ -1652,10 +1689,10 @@ task.spawn(function()
 
         if cheatbreakerSubTimer > 0.08 + aaRandom() * 0.15 then
             cheatbreakerSubTimer = 0
-            cheatbreakerSubMode = (cheatbreakerSubMode + 1) % 5
+            cheatbreakerSubMode = (cheatbreakerSubMode + 1) % 7
         end
 
-        local yaw, desync, pitch
+        local yaw, desync, pitch, pitchMode
 
         if cheatbreakerSubMode == 0 then
             local poleAngle = CHEATBREAKER_POLES[cheatbreakerPoleIdx]
@@ -1663,26 +1700,41 @@ task.spawn(function()
             yaw = math.deg(poleAngle + cheatbreakerPhase * 0.4)
             desync = 40 + math.sin(cheatbreakerPhase * 1.3) * 50
             pitch = -(25 + math.cos(cheatbreakerPhase * 0.7) * 55)
+            pitchMode = "Static"
         elseif cheatbreakerSubMode == 1 then
             local offsetAngle = CHEATBREAKER_OFFSETS[cheatbreakerPoleIdx]
             yaw = math.deg(offsetAngle)
             desync = -60 - aaRandom() * 40
             pitch = -(70 + aaRandom() * 20)
+            pitchMode = "Static"
         elseif cheatbreakerSubMode == 2 then
             yaw = math.deg(cheatbreakerPhase) % 360
             desync = math.sin(cheatbreakerPhase * 3) * 80
             pitch = math.cos(cheatbreakerPhase * 2.7) * 89
+            pitchMode = "Sway"
         elseif cheatbreakerSubMode == 3 then
             yaw = (aaRandom() * 2 - 1) * 180
             desync = (aaRandom() * 2 - 1) * 90
             pitch = -(20 + aaRandom() * 70)
-        else
+            pitchMode = "3 Angles"
+        elseif cheatbreakerSubMode == 4 then
             local lerpT = aaRandom()
             local poleA = CHEATBREAKER_POLES[cheatbreakerPoleIdx]
             local poleB = CHEATBREAKER_OFFSETS[cheatbreakerPoleIdx]
             yaw = math.deg(poleA * lerpT + poleB * (1 - lerpT))
             desync = 50 * math.sin(cheatbreakerPhase)
             pitch = -45
+            pitchMode = "Static"
+        elseif cheatbreakerSubMode == 5 then
+            yaw = math.deg(math.sin(cheatbreakerPhase * 2.1) * 180)
+            desync = 75
+            pitch = -89
+            pitchMode = "Jitter"
+        else
+            yaw = math.deg(cheatbreakerPhase * 0.7) % 360
+            desync = -65
+            pitch = -(30 + aaRandom() * 40)
+            pitchMode = "Sway"
         end
 
         local roll = aaRandom()
@@ -1693,20 +1745,27 @@ task.spawn(function()
             yaw = yaw + 180
         end
 
-        AAHandler.SendYawJitter(nil, "Static", yaw, 0, 0, 0, 0, 0)
+        local jitterAmt = (cheatbreakerSubMode == 5) and (80 + aaRandom() * 40) or 0
+        local jitterMode = jitterAmt > 0 and "Jitter" or "Static"
+        AAHandler.SendYawJitter(nil, jitterMode, yaw, -jitterAmt, jitterAmt, 160, 0, 0)
         AAHandler.SendBodyYaw(nil, desync)
-        AAHandler.SendPitchMode(nil, "Static", pitch, 0, 0, 0, 0, 0)
+        if pitchMode == "Sway" then
+            AAHandler.SendPitchMode(nil, "Sway", pitch, -80, -10, 1.5 + aaRandom() * 1.5, 0, 0)
+        else
+            AAHandler.SendPitchMode(nil, pitchMode, pitch, 0, 0, 0, 0, 0)
+        end
 
         pcall(function()
             local char = LocalPlayer.Character
             local hrp = char and char:FindFirstChild("HumanoidRootPart")
-            local rootJoint = hrp and hrp:FindFirstChild("RootJoint") or (char and char:FindFirstChild("HumanoidRootPart") and char.HumanoidRootPart:FindFirstChildOfClass("Motor6D"))
+            local rootJoint = hrp and (hrp:FindFirstChild("RootJoint") or hrp:FindFirstChildOfClass("Motor6D"))
             if rootJoint then
                 if not rootJoint:GetAttribute("OriginalC0") then
                     rootJoint:SetAttribute("OriginalC0", rootJoint.C0)
                 end
                 local fakeYaw = math.rad(yaw)
                 rootJoint.C0 = CFrame.new(0, 0, 0) * CFrame.Angles(0, fakeYaw, 0)
+                AAHandler.SendMotorOverrides(nil, {RootJoint = rootJoint.C0}, pitch)
             end
         end)
 
@@ -3708,15 +3767,36 @@ casualSection:CreateButton({
     Callback = function()
         ApplyPreset({
             UnhittableEngine = true,
-            UnhittableRate = 60,
-            UnhittableMinDesync = 40,
-            UnhittableDesyncBias = 65,
-            UnhittablePitchRange = 35,
-            UnhittableFlipDelay = 0.008,
+            UnhittableRate = 80,
+            UnhittableMinDesync = 50,
+            UnhittableDesyncBias = 75,
+            UnhittablePitchRange = 40,
+            UnhittableFlipDelay = 0.006,
             AAMicroNoise = true,
             RageBotAutoPrediction = true,
             HumanizeHitPos = true,
         })
+        notify("NeverHit V2", "Preset: Full Unhittable loaded", 2)
+    end
+})
+
+casualSection:CreateButton({
+    Name = "12. Cheatbreaker (Max)",
+    Callback = function()
+        ApplyPreset({
+            CheatbreakerEnabled = true,
+            AAAsymmetricPoles = true,
+            AAMicroNoise = true,
+            AAPerShotPitch = true,
+            BodyYawantiaim = 70,
+            Pitchantiaim = -75,
+            BaseYawantiaim = 0,
+            RageBotAutoPrediction = true,
+            HumanizeHitPos = true,
+        })
+        notify("NeverHit V2", "Preset: Cheatbreaker loaded", 2)
+    end
+})
         notify("NeverHit V2", "Preset: Full Unhittable loaded", 2)
     end
 })
