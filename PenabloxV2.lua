@@ -242,6 +242,7 @@ G.GrayZoneEnabled = G.GrayZoneEnabled or false
 G.ResolverBaitEnabled = G.ResolverBaitEnabled or false
 G.AdaptiveAAEnabled = G.AdaptiveAAEnabled or false
 G.CheatbreakerEnabled = G.CheatbreakerEnabled or false
+G.ResolverBreakEnabled = G.ResolverBreakEnabled or false
 G.AAMicroNoise = G.AAMicroNoise or false
 G.AAPerShotPitch = G.AAPerShotPitch or false
 G.AAAsymmetricPoles = G.AAAsymmetricPoles or false
@@ -1626,6 +1627,7 @@ task.spawn(function()
         G.TrueRandomAA = (mode == "TrueRandom")
         G.CheatbreakerEnabled = (mode == "Cheatbreaker")
         G.UnhittableEngine = false
+        G.ResolverBreakEnabled = false
         notify("NeverHit V2", "Adaptive: switched to " .. mode, 2)
     end
 
@@ -1783,6 +1785,107 @@ task.spawn(function()
         end)
     end
 
+    local resolverBreakPhase = 0
+    local resolverBreakSubMode = 0
+    local resolverBreakSubTimer = 0
+    local resolverBreakYaw = 0
+
+    local GOLDEN_ANGLE_RAD = math.rad(137.508)
+
+    local function SendResolverBreaker(dt)
+        resolverBreakPhase = resolverBreakPhase + 1
+        resolverBreakSubTimer = resolverBreakSubTimer + dt
+
+        if resolverBreakSubTimer > 0.05 + aaRandom() * 0.1 then
+            resolverBreakSubTimer = 0
+            resolverBreakSubMode = (resolverBreakSubMode + 1) % 5
+        end
+
+        resolverBreakYaw = resolverBreakYaw + GOLDEN_ANGLE_RAD
+
+        local yaw, desync, pitch, pitchMode
+        local desyncRad = 0
+
+        if resolverBreakSubMode == 0 then
+            yaw = math.deg(resolverBreakYaw) % 360
+            desync = 70 * math.sin(resolverBreakPhase * 2.7)
+            pitch = -(60 + aaRandom() * 30)
+            pitchMode = "Static"
+        elseif resolverBreakSubMode == 1 then
+            yaw = math.deg(resolverBreakYaw + math.pi) % 360
+            desync = -80 + aaRandom() * 10
+            pitch = -89
+            pitchMode = "Jitter"
+        elseif resolverBreakSubMode == 2 then
+            yaw = math.deg(-resolverBreakYaw) % 360
+            desync = 55 * math.cos(resolverBreakPhase * 1.9)
+            pitch = -(15 + aaRandom() * 55)
+            pitchMode = "Sway"
+        elseif resolverBreakSubMode == 3 then
+            yaw = math.deg(resolverBreakYaw * 0.618) % 360
+            desync = (aaRandom() > 0.5 and 80 or -80)
+            pitch = -(40 + math.cos(resolverBreakPhase * 0.8) * 49)
+            pitchMode = "Static"
+        else
+            yaw = math.deg(resolverBreakYaw + GOLDEN_ANGLE_RAD * 3) % 360
+            desync = math.sin(resolverBreakPhase * 0.37) * 90
+            pitch = -89
+            pitchMode = "3 Angles"
+        end
+
+        local roll = aaRandom()
+        if roll < 0.25 then
+            yaw = yaw + 180
+            desync = -desync
+        elseif roll < 0.4 then
+            pitch = 89
+        end
+
+        desyncRad = math.rad(desync)
+
+        local jitterAmt = 60 + aaRandom() * 80
+        local jitterMode = aaRandom() < 0.6 and "Jitter" or "Static"
+        AAHandler.SendYawJitter(nil, jitterMode, yaw, -jitterAmt, jitterAmt, 180, 0, 0)
+        AAHandler.SendBodyYaw(nil, desync)
+        if pitchMode == "Sway" then
+            AAHandler.SendPitchMode(nil, "Sway", pitch, -80, -10, 1.5 + aaRandom(), 0, 0)
+        else
+            AAHandler.SendPitchMode(nil, pitchMode, pitch, 0, 0, 0, 0, 0)
+        end
+
+        pcall(function()
+            local char = LocalPlayer.Character
+            local hrp = char and char:FindFirstChild("HumanoidRootPart")
+            local rootJoint = hrp and (hrp:FindFirstChild("RootJoint") or hrp:FindFirstChildOfClass("Motor6D"))
+            if rootJoint then
+                if not rootJoint:GetAttribute("OriginalC0") then
+                    rootJoint:SetAttribute("OriginalC0", rootJoint.C0)
+                end
+                local motorOffset = math.rad(yaw) + desyncRad * 0.4
+                rootJoint.C0 = CFrame.new(0, 0, 0) * CFrame.Angles(0, motorOffset, 0)
+                AAHandler.SendMotorOverrides(nil, {RootJoint = rootJoint.C0}, pitch)
+            end
+        end)
+
+        pcall(function()
+            local char = LocalPlayer.Character
+            local hrp = char and char:FindFirstChild("HumanoidRootPart")
+            local hum = char and char:FindFirstChildOfClass("Humanoid")
+            if hrp and hum then
+                local fakeDir = Vector3.new(
+                    math.sin(resolverBreakYaw + desyncRad),
+                    0,
+                    math.cos(resolverBreakYaw + desyncRad)
+                )
+                local vel = hrp.AssemblyLinearVelocity
+                local flatSpeed = Vector3.new(vel.X, 0, vel.Z).Magnitude
+                if flatSpeed > 1 then
+                    hrp.AssemblyLinearVelocity = fakeDir * flatSpeed + Vector3.new(0, vel.Y, 0)
+                end
+            end
+        end)
+    end
+
     local lastSent = {}
     local function sendManualAA()
         local key = table.concat({
@@ -1828,7 +1931,8 @@ task.spawn(function()
         elseif G.TrueRandomAA or G.GoldenRatioEnabled or G.MultiPoleEnabled
             or G.CompoundDesyncEnabled or G.StutteredStaticEnabled
             or G.FrequencySweepEnabled or G.GrayZoneEnabled
-            or G.ResolverBaitEnabled or G.AdaptiveAAEnabled or G.CheatbreakerEnabled then
+            or G.ResolverBaitEnabled or G.AdaptiveAAEnabled or G.CheatbreakerEnabled
+            or G.ResolverBreakEnabled then
             interval = 1 / 60
         end
 
@@ -1852,6 +1956,7 @@ task.spawn(function()
                 if G.ResolverBaitEnabled then SendResolverBait(); return end
                 if G.AdaptiveAAEnabled then SendAdaptive(dt); return end
                 if G.CheatbreakerEnabled then SendCheatbreaker(dt); return end
+                if G.ResolverBreakEnabled then SendResolverBreaker(dt); return end
                 sendManualAA()
             end)
 
@@ -1886,6 +1991,7 @@ local function SetUnhittablePreset(name)
             G.BaseYawantiaim = 0
             G.UnhittableEngine = true
             G.TrueRandomAA = false
+            G.ResolverBreakEnabled = false
             G.UnhittableRate = p.Rate
             G.UnhittableMinDesync = p.Min
             G.UnhittableDesyncBias = p.Bias
@@ -1912,6 +2018,7 @@ local function ApplyNeverHitPreset()
     G.antiaimrandomness = 0
     G.UnhittableEngine = false
     G.TrueRandomAA = false
+    G.ResolverBreakEnabled = false
     G.AntiAimEnabled = true
     SyncUIFromGlobals()
 end
@@ -2953,7 +3060,7 @@ local aaModeList = {
     "Manual (Static)", "Manual (Offset)", "Manual (Center)", "Manual (3-Way)", "Manual (5-Way)",
     "True Random", "Golden Ratio", "Multi-Pole", "Frequency Sweep",
     "Compound Desync", "Stuttered Static", "Gray Zone", "Resolver Bait", "Adaptive (Anti-Hit)",
-    "Cheatbreaker", "Unhittable Engine"
+    "Cheatbreaker", "Unhittable Engine", "Resolver Breaker"
 }
 
 local function DisableAllAAModes()
@@ -2968,6 +3075,7 @@ local function DisableAllAAModes()
     G.AdaptiveAAEnabled = false
     G.CheatbreakerEnabled = false
     G.UnhittableEngine = false
+    G.ResolverBreakEnabled = false
 
     pcall(function()
         local char = LocalPlayer.Character
@@ -3004,6 +3112,7 @@ UIRefs.activeMode = aaGeneralSection:CreateDropdown({
         elseif mode == "Adaptive (Anti-Hit)" then G.AdaptiveAAEnabled = true
         elseif mode == "Cheatbreaker" then G.CheatbreakerEnabled = true
         elseif mode == "Unhittable Engine" then G.UnhittableEngine = true
+        elseif mode == "Resolver Breaker" then G.ResolverBreakEnabled = true
         end
         G.AAdirty = true
     end
@@ -3544,6 +3653,7 @@ SyncUIFromGlobals = function()
             elseif G.AdaptiveAAEnabled then modeIdx = 14
             elseif G.CheatbreakerEnabled then modeIdx = 15
             elseif G.UnhittableEngine then modeIdx = 16
+            elseif G.ResolverBreakEnabled then modeIdx = 17
             else
                 local m = G.typeofantiaim or "Static"
                 if m == "Static" then modeIdx = 1
@@ -3864,6 +3974,7 @@ registerKeybind(Enum.KeyCode.F6, function()
         G.GrayZoneEnabled = false
         G.ResolverBaitEnabled = false
         G.AdaptiveAAEnabled = false
+        G.ResolverBreakEnabled = false
         notify("NeverHit V2", "SAFE MODE ACTIVATED", 3)
     else
         notify("NeverHit V2", "Safe mode deactivated", 2)
