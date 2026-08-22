@@ -2877,6 +2877,7 @@ moveSection:CreateKeybind({
     State = {"KeyCode", "V"},
     Mode = "Toggle",
     Callback = function(state)
+        if type(state) ~= "boolean" then return end
         G.FlightEnabled = state
         if state then G.NoclipEnabled = true end
     end
@@ -2902,7 +2903,10 @@ moveSection:CreateKeybind({
     Name = "Noclip Key",
     State = {"KeyCode", "N"},
     Mode = "Toggle",
-    Callback = function(state) G.NoclipEnabled = state end
+    Callback = function(state)
+        if type(state) ~= "boolean" then return end
+        G.NoclipEnabled = state
+    end
 })
 
 moveSection:CreateToggle({
@@ -2925,6 +2929,7 @@ moveSection:CreateKeybind({
     State = {"KeyCode", "B"},
     Mode = "Toggle",
     Callback = function(state)
+        if type(state) ~= "boolean" then return end
         G.NoclipFlightEnabled = state
         if state then
             G.NoclipEnabled = true
